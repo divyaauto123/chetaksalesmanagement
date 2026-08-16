@@ -1150,7 +1150,8 @@ function openTransferModal(id) {
       await db.insert('chetak_transfers', {
         stock_id: s.id, vin_no: s.vin_no, model: s.model, colour: s.colour,
         from_location: currentLoc, to_location: fd.to_location, transfer_date: fd.transfer_date,
-        transferred_by: session.profile?.full_name || session.user?.email || '', remarks: fd.remarks || ''
+        transferred_by: session.profile?.full_name || session.user?.email || '', remarks: fd.remarks || '',
+        received_by_name: '', received_by_contact: ''
       });
       await db.update('chetak_stock', s.id, { location: fd.to_location, updated_at: new Date().toISOString() });
       showToast(`Transferred to ${fd.to_location}`, 'success');
@@ -1180,12 +1181,60 @@ function renderTransfers() {
       <div class="card">
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg><p>No transfers recorded yet</p></div>` : `
         <div class="table-wrap" style="border:none;"><table class="table">
-          <thead><tr><th>Date</th><th>Model</th><th>VIN</th><th>From</th><th>To</th><th>Transferred By</th><th>Remarks</th></tr></thead>
-          <tbody>${filtered.map(t => `<tr><td class="text-xs">${formatDate(t.transfer_date)}</td><td class="text-xs">${escapeHtml(t.model)}</td><td class="font-mono text-xs">${escapeHtml(t.vin_no)}</td><td><span class="badge badge-accent">${escapeHtml(t.from_location)}</span></td><td><span class="badge badge-info">${escapeHtml(t.to_location)}</span></td><td class="text-xs">${escapeHtml(t.transferred_by || '—')}</td><td class="text-xs">${escapeHtml(t.remarks || '—')}</td></tr>`).join('')}</tbody>
+          <thead><tr><th>Date</th><th>Model</th><th>VIN</th><th>From</th><th>To</th><th>Transferred By</th><th>Received By</th><th>Remarks</th><th>Actions</th></tr></thead>
+          <tbody>${filtered.map(t => `<tr><td class="text-xs">${formatDate(t.transfer_date)}</td><td class="text-xs">${escapeHtml(t.model)}</td><td class="font-mono text-xs">${escapeHtml(t.vin_no)}</td><td><span class="badge badge-accent">${escapeHtml(t.from_location)}</span></td><td><span class="badge badge-info">${escapeHtml(t.to_location)}</span></td><td class="text-xs">${escapeHtml(t.transferred_by || '—')}</td><td class="text-xs">${escapeHtml(t.received_by_name || '—')}</td><td class="text-xs">${escapeHtml(t.remarks || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="openTransferPrintModal('${t.id}')" title="Received By / Print"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button></div></td></tr>`).join('')}</tbody>
         </table></div>`}
       </div>
     </div>
   `;
+}
+
+function openTransferPrintModal(id) {
+  const t = (state.transfers || []).find(x => String(x.id) === String(id));
+  if (!t) { showToast('Transfer record not found. Please refresh and try again.', 'error'); return; }
+  openModal(`
+    <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+      <div><h3 class="font-display font-bold text-lg text-gray-900">Stock Transfer — Received By</h3><p class="text-xs text-gray-500">${escapeHtml(t.model)} — ${escapeHtml(t.vin_no)} (${escapeHtml(t.from_location)} → ${escapeHtml(t.to_location)})</p></div>
+      <button class="btn btn-ghost btn-icon" onclick="closeModal()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <form id="transferPrintForm" class="p-5 space-y-4">
+      <p class="text-xs text-gray-500">Fill in who is receiving this stock at ${escapeHtml(t.to_location)} (optional). This will be saved and shown on the printed transfer document, with a blank line for their signature.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div><label class="label">Received By (Name)</label><input class="input" name="received_by_name" value="${escapeHtml(t.received_by_name || '')}" placeholder="Receiver's full name"></div>
+        <div><label class="label">Contact Number</label><input class="input" name="received_by_contact" value="${escapeHtml(t.received_by_contact || '')}" placeholder="98XXXXXXXX"></div>
+      </div>
+      <div id="transferPrintFormError" class="hidden-view text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2.5"></div>
+      <div class="flex gap-3 justify-end pt-3 border-t border-gray-100">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn btn-outline" onclick="printTransferSheet('${t.id}')">Print Only</button>
+        <button type="submit" class="btn btn-primary" id="transferPrintSaveBtn">Save &amp; Print</button>
+      </div>
+    </form>
+  `);
+  $('#transferPrintForm').addEventListener('submit', async (e) => {
+    e.preventDefault(); const errBox = $('#transferPrintFormError'); errBox.classList.add('hidden-view');
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    const btn = $('#transferPrintSaveBtn'); const done = showLoading(btn, 'Saving...');
+    try {
+      await db.update('chetak_transfers', t.id, { received_by_name: fd.received_by_name || '', received_by_contact: fd.received_by_contact || '' });
+      t.received_by_name = fd.received_by_name || ''; t.received_by_contact = fd.received_by_contact || '';
+      closeModal();
+      printTransferSheet(t.id);
+      await refreshData();
+    } catch (err) { errBox.textContent = err.message || 'Save failed.'; errBox.classList.remove('hidden-view'); showToast('Error: ' + err.message, 'error'); }
+    finally { done(); }
+  });
+}
+
+function printTransferSheet(id) {
+  const t = (state.transfers || []).find(x => String(x.id) === String(id));
+  if (!t) { showToast('Transfer record not found. Please refresh and try again.', 'error'); return false; }
+  closeModal();
+  const html = `<div class="print-doc delivery-order-print"><div style="text-align: center; border-bottom: 3px solid #d97706; padding-bottom: 7px; margin-bottom: 7px;"><img src="${COMPANY_LOGO}" alt="${COMPANY.name}" style="height:52px;width:auto;display:block;margin:0 auto 10px;"><h1 style="font-size: 22px; color: #0c1117;">${COMPANY.name}</h1><p style="font-size: 11px; color: #666;">${COMPANY.tagline}</p><p style="font-size: 10px; color: #999; margin-top: 4px;">${COMPANY.address}</p><p style="font-size: 10px; color: #999;">Tel: ${COMPANY.phone} | Email: ${COMPANY.email} | PAN/VAT: ${COMPANY.gstin}</p></div><div style="text-align: center; margin-bottom: 7px;"><h2 style="font-size: 18px; color: #d97706; letter-spacing: 2px;">STOCK TRANSFER DOCUMENT</h2></div><table class="compact-table compact-section" style="margin-bottom: 7px;"><tr><td style="background:#f1f5f9; font-weight: 700; width: 25%;">Transfer Date</td><td style="width: 30%;">${formatDate(t.transfer_date)}</td><td style="background:#f1f5f9; font-weight: 700; width: 20%;">Transferred By</td><td>${escapeHtml(t.transferred_by || '—')}</td></tr><tr><td style="background:#f1f5f9; font-weight: 700;">From Branch</td><td>${escapeHtml(t.from_location)}</td><td style="background:#f1f5f9; font-weight: 700;">To Branch</td><td>${escapeHtml(t.to_location)}</td></tr></table><h3 class="compact-section" style="font-size: 11px; color: #d97706; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; margin: 7px 0 4px;">VEHICLE DETAILS</h3><table class="compact-table compact-section" style="margin-bottom: 7px;"><tr><td style="background:#f1f5f9; font-weight: 700; width: 25%;">Model</td><td style="width: 30%;">${escapeHtml(t.model)}</td><td style="background:#f1f5f9; font-weight: 700; width: 20%;">Colour</td><td>${escapeHtml(t.colour || '—')}</td></tr><tr><td style="background:#f1f5f9; font-weight: 700;">VIN Number</td><td colspan="3" style="font-family: monospace;">${escapeHtml(t.vin_no)}</td></tr></table>${t.remarks ? `<h3 class="compact-section" style="font-size: 11px; color: #d97706; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; margin: 7px 0 4px;">REMARKS</h3><p style="font-size: 11px; margin-bottom: 7px;">${escapeHtml(t.remarks)}</p>` : ''}<h3 class="compact-section" style="font-size: 11px; color: #d97706; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; margin: 7px 0 4px;">RECEIVED BY</h3><table class="compact-table compact-section" style="margin-bottom: 7px;"><tr><td style="background:#f1f5f9; font-weight: 700; width: 25%;">Name</td><td style="width: 30%;">${escapeHtml(t.received_by_name || '_______________________')}</td><td style="background:#f1f5f9; font-weight: 700; width: 20%;">Contact No.</td><td>${escapeHtml(t.received_by_contact || '_______________________')}</td></tr></table>
+    <p style="font-size: 11px; line-height: 1.75; margin: 14px 0 4px;">I, Mr./Ms. <b>${escapeHtml(t.received_by_name || '') || '_______________________'}</b>, confirm that I have received the above vehicle at ${escapeHtml(t.to_location)} in good condition.</p>
+    <div style="margin-top: 30px;"><table><tr><td style="text-align: center; border: none; width: 50%;"><div style="border-top: 1px solid #000; padding-top: 6px; margin: 0 20px; font-size: 11px; font-weight: 700;">Received By Signature</div></td><td style="text-align: center; border: none; width: 50%;"><div style="border-top: 1px solid #000; padding-top: 6px; margin: 0 20px; font-size: 11px; font-weight: 700;">Transferred By Signature</div></td></tr></table></div>
+    <p style="text-align: center; font-size: 9px; color: #999; margin-top: 12px; border-top: 1px solid #e5e7eb; padding-top: 10px;">This is a computer generated Stock Transfer Document. ${COMPANY.name}.<br>For any queries, contact ${COMPANY.phone} or ${COMPANY.email}</p></div>`;
+  printDocument(html);
 }
 
 /* ============================================================
