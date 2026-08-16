@@ -236,6 +236,7 @@
       <div class="text-gray-600 text-[10px] font-bold uppercase tracking-wider px-3 mb-2 mt-4">Documents</div>
       <a class="nav-link" data-page="quotation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Quotation</a>
       <a class="nav-link" data-page="purchase"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M9 14 11 16l4-4"/></svg>Purchase</a>
+      <a class="nav-link" data-page="transfers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Transfers</a>
       <div class="text-gray-600 text-[10px] font-bold uppercase tracking-wider px-3 mb-2 mt-4">Ledgers</div>
       <a class="nav-link" data-page="sales-ledger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20v14H2z"/><path d="M2 9h20"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>Sales Ledger</a>
       <a class="nav-link" data-page="delivery-ledger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20v14H2z"/><path d="M2 9h20"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>Delivery Ledger</a>
@@ -312,6 +313,7 @@ const COLOURS = [
 
 const PAYMENT_MODES = ["Cash", "Finance", "Exchange", "Cash + Finance"];
 const STOCK_STATUSES = ["available", "reserved", "sold", "transferred"];
+const BRANCHES = ["Divya Auto Hub", "NT Auto Hub"];
 const QUOTATION_STATUSES = ["draft", "sent", "accepted", "cancelled", "expired"];
 
 /* ============================================================
@@ -527,7 +529,7 @@ async function loadUsers() {
 
 const state = {
   currentPage: 'dashboard',
-  stock: [], customers: [], sales: [], deliveries: [], quotations: [], purchases: [], users: [],
+  stock: [], customers: [], sales: [], deliveries: [], quotations: [], purchases: [], users: [], transfers: [],
   loading: false, charts: {}, filters: {}
 };
 
@@ -783,6 +785,7 @@ async function loadAllData() {
     ]);
     state.stock = stock; state.customers = customers; state.sales = sales;
     state.deliveries = deliveries; state.quotations = quotations; state.purchases = purchases;
+    state.transfers = await db.list('chetak_transfers').catch(e => { console.warn('chetak_transfers table not found yet:', e.message); return []; });
   } catch (e) {
     console.error('Load error:', e);
     showToast('Failed to load data: ' + e.message, 'error');
@@ -801,6 +804,7 @@ async function refreshData() {
     ]);
     state.stock = stock; state.customers = customers; state.sales = sales;
     state.deliveries = deliveries; state.quotations = quotations; state.purchases = purchases;
+    state.transfers = await db.list('chetak_transfers').catch(() => state.transfers || []);
   } catch (e) { console.error('Refresh error:', e); }
   renderCurrentPage();
 }
@@ -816,6 +820,7 @@ const PAGES = {
   'delivery': { title: 'Delivery Management', subtitle: 'Process vehicle deliveries', render: renderDelivery },
   'quotation': { title: 'Quotation Management', subtitle: 'Create and track quotations', render: renderQuotation },
   'purchase': { title: 'Purchase Management', subtitle: 'Record stock purchases from suppliers', render: renderPurchase },
+  'transfers': { title: 'Branch Transfers', subtitle: 'Move stock between Divya Auto Hub and NT Auto Hub', render: renderTransfers },
   'sales-ledger': { title: 'Sales Ledger', subtitle: 'Complete sales transaction ledger', render: renderSalesLedger },
   'delivery-ledger': { title: 'Delivery Ledger', subtitle: 'Complete delivery transaction ledger', render: renderDeliveryLedger },
   'reports': { title: 'Reports & Analytics', subtitle: 'Generate business reports', render: renderReports },
@@ -950,10 +955,12 @@ function renderStock() {
   const search = (state.filters.stockSearch || '').toLowerCase();
   const statusFilter = state.filters.stockStatus || '';
   const modelFilter = state.filters.stockModel || '';
+  const branchFilter = state.filters.stockBranch || '';
   let filtered = state.stock.filter(s => {
     if (search) { const t = `${s.vin_no} ${s.model} ${s.colour} ${s.motor_no} ${s.battery_no} ${s.registration_no}`.toLowerCase(); if (!t.includes(search)) return false; }
     if (statusFilter && s.status !== statusFilter) return false;
     if (modelFilter && s.model !== modelFilter) return false;
+    if (branchFilter && (s.location || BRANCHES[0]) !== branchFilter) return false;
     return true;
   });
 
@@ -965,6 +972,7 @@ function renderStock() {
           <button class="btn btn-outline" onclick="printStockReport()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/></svg>Print</button>
           <button class="btn btn-outline" onclick="exportModule('stock')">Export Stock</button>
           <button class="btn btn-outline" onclick="triggerImport('stock')">Import Stock</button>
+          <button class="btn btn-outline" onclick="navigateTo('transfers')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Transfers</button>
           <button class="btn btn-primary" onclick="openStockModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Stock</button>
         </div>
       </div>
@@ -973,6 +981,7 @@ function renderStock() {
           <div><label class="label">Search</label><input class="input" placeholder="VIN, motor..." value="${escapeHtml(state.filters.stockSearch || '')}" oninput="state.filters.stockSearch=this.value; renderStock();"></div>
           <div><label class="label">Status</label><select class="select" onchange="state.filters.stockStatus=this.value; renderStock();"><option value="">All Status</option>${STOCK_STATUSES.map(s => `<option ${state.filters.stockStatus === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
           <div><label class="label">Model</label><select class="select" onchange="state.filters.stockModel=this.value; renderStock();"><option value="">All Models</option>${CHETAK_MODELS.map(m => `<option ${state.filters.stockModel === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
+          <div><label class="label">Branch</label><select class="select" onchange="state.filters.stockBranch=this.value; renderStock();"><option value="">All Branches</option>${BRANCHES.map(b => `<option ${state.filters.stockBranch === b ? 'selected' : ''}>${b}</option>`).join('')}</select></div>
           <div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters={}; renderStock();">Clear Filters</button></div>
         </div>
       </div>
@@ -980,17 +989,19 @@ function renderStock() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/></svg><p>No stock records found</p></div>` : `
           <div class="table-wrap" style="border: none;">
             <table class="table">
-              <thead><tr><th>SN</th><th>Model</th><th>Year</th><th>Colour</th><th>VIN</th><th>Motor</th><th>Selling Price</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>SN</th><th>Model</th><th>Year</th><th>Colour</th><th>VIN</th><th>Motor</th><th>Branch</th><th>Selling Price</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>${filtered.map((s, i) => `
                 <tr>
                   <td>${i + 1}</td>
                   <td><p class="font-semibold text-gray-900">${escapeHtml(s.model)}</p><p class="text-[11px] text-gray-500">${escapeHtml(s.variant || 'Standard')}</p></td>
                   <td class="text-xs">${escapeHtml(s.model_year || '—')}</td>
                   <td>${escapeHtml(s.colour)}</td><td class="font-mono text-xs">${escapeHtml(s.vin_no)}</td><td class="font-mono text-xs">${escapeHtml(s.motor_no)}</td>
+                  <td><span class="badge ${(s.location||BRANCHES[0])===BRANCHES[0] ? 'badge-accent' : 'badge-info'}">${escapeHtml(s.location || BRANCHES[0])}</span></td>
                   <td class="font-semibold">${money(s.selling_price)}</td><td>${statusBadge(s.status)}</td>
                   <td><div class="flex gap-1">
                     <button class="btn btn-ghost btn-sm" onclick="viewStock('${s.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
                     <button class="btn btn-ghost btn-sm" onclick="openStockModal('${s.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                    ${s.status !== 'sold' ? `<button class="btn btn-ghost btn-sm" onclick="openTransferModal('${s.id}')" title="Transfer Branch"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>` : ''}
                     ${canManage() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteStock('${s.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>` : ''}
                   </div></td>
                 </tr>`).join('')}
@@ -1038,7 +1049,7 @@ async function openStockModal(id = null) {
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div><label class="label">Purchase Invoice No.</label><input name="purchase_invoice_no" class="input" value="${escapeHtml(existing?.purchase_invoice_no || '')}"></div>
-        <div><label class="label">Location</label><input name="location" class="input" value="${escapeHtml(existing?.location || 'Showroom - Kathmandu')}" placeholder="Showroom / Warehouse"></div>
+        <div><label class="label">Branch / Location</label><select name="location" class="select">${BRANCHES.map(b => `<option ${(existing?.location || BRANCHES[0]) === b ? 'selected' : ''}>${b}</option>`).join('')}</select></div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div><label class="label">Purchase Price (Rs.) <span class="req">*</span></label><input name="purchase_price" type="number" min="0" class="input" value="${existing?.purchase_price || 245000}" required></div>
@@ -1106,6 +1117,75 @@ function printStockReport() {
   closeModal();
   const html = `<div class="print-doc delivery-order-print"><div style="text-align:center; border-bottom: 2px solid #d97706; padding-bottom: 12px; margin-bottom: 7px;"><img src="${COMPANY_LOGO}" alt="${COMPANY.name}" style="height:52px;width:auto;display:block;margin:0 auto 10px;"><h1 style="font-size: 20px; color: #0c1117;">${COMPANY.name}</h1><p style="font-size: 11px; color: #666;">${COMPANY.address} | ${COMPANY.phone} | ${COMPANY.email}</p><h2 style="font-size: 16px; margin-top: 10px; color: #d97706;">STOCK REPORT</h2><p style="font-size: 10px; color: #999;">Generated: ${new Date().toLocaleString('en-IN')}</p></div><table><thead><tr><th>SN</th><th>Model</th><th>Year</th><th>Colour</th><th>VIN</th><th>Motor</th><th>Status</th><th>Price</th></tr></thead><tbody>${state.stock.map((s, i) => `<tr><td>${i+1}</td><td>${escapeHtml(s.model)}</td><td>${escapeHtml(s.model_year || '—')}</td><td>${escapeHtml(s.colour)}</td><td>${escapeHtml(s.vin_no)}</td><td>${escapeHtml(s.motor_no)}</td><td>${escapeHtml(s.status)}</td><td>${money(s.selling_price)}</td></tr>`).join('')}</tbody></table><p style="margin-top: 14px; font-size: 10px; color: #666;">Total Records: ${state.stock.length}</p></div>`;
   printDocument(html);
+}
+
+/* ============================================================
+   BRANCH TRANSFERS
+   ============================================================ */
+function openTransferModal(id) {
+  const s = state.stock.find(x => x.id === id); if (!s) return;
+  const currentLoc = s.location || BRANCHES[0];
+  const otherBranches = BRANCHES.filter(b => b !== currentLoc);
+  openModal(`
+    <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+      <div><h3 class="font-display font-bold text-lg text-gray-900">Transfer Stock</h3><p class="text-xs text-gray-500">${escapeHtml(s.model)} — ${escapeHtml(s.vin_no)}</p></div>
+      <button class="btn btn-ghost btn-icon" onclick="closeModal()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <form id="transferForm" class="p-5 space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div><label class="label">Currently At</label><input class="input bg-gray-50" value="${escapeHtml(currentLoc)}" readonly></div>
+        <div><label class="label">Transfer To <span class="req">*</span></label><select name="to_location" class="select" required>${otherBranches.map(b => `<option>${b}</option>`).join('')}</select></div>
+      </div>
+      <div><label class="label">Transfer Date <span class="req">*</span></label><input type="date" name="transfer_date" class="input" value="${todayStr()}" required></div>
+      <div><label class="label">Remarks</label><textarea name="remarks" class="textarea" rows="2" placeholder="Reason for transfer (optional)"></textarea></div>
+      <div id="transferFormError" class="hidden-view text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2.5"></div>
+      <div class="flex gap-3 justify-end pt-3 border-t border-gray-100"><button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary" id="transferSaveBtn">Confirm Transfer</button></div>
+    </form>
+  `);
+  $('#transferForm').addEventListener('submit', async (e) => {
+    e.preventDefault(); const errBox = $('#transferFormError'); errBox.classList.add('hidden-view');
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    const btn = $('#transferSaveBtn'); const done = showLoading(btn, 'Transferring...');
+    try {
+      await db.insert('chetak_transfers', {
+        stock_id: s.id, vin_no: s.vin_no, model: s.model, colour: s.colour,
+        from_location: currentLoc, to_location: fd.to_location, transfer_date: fd.transfer_date,
+        transferred_by: session.profile?.full_name || session.user?.email || '', remarks: fd.remarks || ''
+      });
+      await db.update('chetak_stock', s.id, { location: fd.to_location, updated_at: new Date().toISOString() });
+      showToast(`Transferred to ${fd.to_location}`, 'success');
+      closeModal(); await refreshData();
+    } catch (err) { errBox.textContent = err.message || 'Transfer failed.'; errBox.classList.remove('hidden-view'); showToast('Error: ' + err.message, 'error'); }
+    finally { done(); }
+  });
+}
+function renderTransfers() {
+  const f = state.filters.transfers || {};
+  let filtered = (state.transfers || []).filter(t => {
+    if (f.branch && t.from_location !== f.branch && t.to_location !== f.branch) return false;
+    if (f.search) { const q = f.search.toLowerCase(); const t2 = `${t.vin_no} ${t.model}`.toLowerCase(); if (!t2.includes(q)) return false; }
+    return true;
+  });
+  $('#mainContent').innerHTML = `
+    <div class="view space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 page-header">
+        <div><h3 class="font-display font-bold text-lg text-gray-900">Branch Transfers (${filtered.length})</h3><p class="text-gray-500 text-xs">Stock movement history between branches</p></div>
+        <button class="btn btn-outline" onclick="navigateTo('stock')">← Back to Stock</button>
+      </div>
+      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div><label class="label">Search</label><input class="input" placeholder="VIN or model..." value="${escapeHtml(f.search || '')}" oninput="state.filters.transfers = state.filters.transfers || {}; state.filters.transfers.search = this.value; renderTransfers();"></div>
+        <div><label class="label">Branch</label><select class="select" onchange="state.filters.transfers = state.filters.transfers || {}; state.filters.transfers.branch = this.value; renderTransfers();"><option value="">All Branches</option>${BRANCHES.map(b => `<option ${f.branch === b ? 'selected' : ''}>${b}</option>`).join('')}</select></div>
+        <div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.transfers={}; renderTransfers();">Clear Filters</button></div>
+      </div></div>
+      <div class="card">
+        ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg><p>No transfers recorded yet</p></div>` : `
+        <div class="table-wrap" style="border:none;"><table class="table">
+          <thead><tr><th>Date</th><th>Model</th><th>VIN</th><th>From</th><th>To</th><th>Transferred By</th><th>Remarks</th></tr></thead>
+          <tbody>${filtered.map(t => `<tr><td class="text-xs">${formatDate(t.transfer_date)}</td><td class="text-xs">${escapeHtml(t.model)}</td><td class="font-mono text-xs">${escapeHtml(t.vin_no)}</td><td><span class="badge badge-accent">${escapeHtml(t.from_location)}</span></td><td><span class="badge badge-info">${escapeHtml(t.to_location)}</span></td><td class="text-xs">${escapeHtml(t.transferred_by || '—')}</td><td class="text-xs">${escapeHtml(t.remarks || '—')}</td></tr>`).join('')}</tbody>
+        </table></div>`}
+      </div>
+    </div>
+  `;
 }
 
 /* ============================================================
@@ -1829,10 +1909,11 @@ async function openPurchaseModal() {
       <button class="btn btn-ghost btn-icon" onclick="closeModal()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <form id="purForm" class="p-5 space-y-4">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div><label class="label">Date of Invoice <span class="req">*</span></label><input type="date" name="purchase_date" class="input" value="${todayStr()}" required></div>
         <div><label class="label">Number of Invoice <span class="req">*</span></label><input name="invoice_no" class="input" placeholder="BAJ-INV-..." required></div>
         <div><label class="label">Supplier Name</label><input name="supplier_name" class="input" value="Bajaj Auto Ltd."></div>
+        <div><label class="label">Receiving Branch <span class="req">*</span></label><select name="location" class="select" required>${BRANCHES.map(b => `<option>${b}</option>`).join('')}</select></div>
       </div>
       <div>
         <div class="flex items-center justify-between mb-2"><label class="label !mb-0">Vehicles in this Invoice</label><button type="button" class="btn btn-outline btn-sm" onclick="addPurLine()">+ Add Vehicle</button></div>
@@ -1886,7 +1967,7 @@ async function openPurchaseModal() {
           vin_no: r.vin_no, motor_no: r.motor_no, battery_no: r.battery_no, key_no: '',
           registration_no: regCombined, lumbini_registration_no: r.lumbini_registration_no, bagmati_registration_no: r.bagmati_registration_no,
           purchase_date: header.purchase_date, purchase_invoice_no: header.invoice_no,
-          purchase_price: r.amount, selling_price: r.amount, location: 'Showroom - Kathmandu',
+          purchase_price: r.amount, selling_price: r.amount, location: header.location || BRANCHES[0],
           status: 'available', remarks: header.remarks || ''
         });
       }
@@ -2030,7 +2111,7 @@ async function importRows(type, rows, mapping) { const cfg = IMPORT_EXPORT_CONFI
       }
       const stockPayload={ model:d.model, colour:d.colour, vin_no:d.vin_no, motor_no:d.motor_no, battery_no:d.battery_no, lumbini_registration_no:d.lumbini_registration_no, bagmati_registration_no:d.bagmati_registration_no, registration_no:regCombined, purchase_date:d.purchase_date, purchase_invoice_no:d.invoice_no, purchase_price:d.amount };
       if(existingStock){ await db.update('chetak_stock',existingStock.id,{...stockPayload,updated_at:new Date().toISOString()}); }
-      else { await db.insert('chetak_stock',{ ...stockPayload, variant:'Standard', model_year:new Date().getFullYear(), key_no:'', selling_price:d.amount, location:'Showroom - Kathmandu', status:'available', remarks:'' }); }
+      else { await db.insert('chetak_stock',{ ...stockPayload, variant:'Standard', model_year:new Date().getFullYear(), key_no:'', selling_price:d.amount, location:BRANCHES[0], status:'available', remarks:'' }); }
     }
     if(type==='sales'){
       if(!d.vin_no || !d.model){ skip++; errors.push(`Row ${i+2}: VIN and Model are required`); continue; }
@@ -2292,6 +2373,7 @@ function setupGlobalSearch() {
    ============================================================ */
 function setupRealtime() {
   supabaseClient.channel('public:chetak_stock').on('postgres_changes', { event: '*', schema: 'public', table: 'chetak_stock' }, payload => { refreshData(); showToast('New data synced from cloud', 'info', 2000); }).subscribe();
+  supabaseClient.channel('public:chetak_transfers').on('postgres_changes', { event: '*', schema: 'public', table: 'chetak_transfers' }, payload => { refreshData(); }).subscribe();
   supabaseClient.channel('public:chetak_sales').on('postgres_changes', { event: '*', schema: 'public', table: 'chetak_sales' }, payload => { refreshData(); }).subscribe();
   supabaseClient.channel('public:chetak_deliveries').on('postgres_changes', { event: '*', schema: 'public', table: 'chetak_deliveries' }, payload => { refreshData(); }).subscribe();
   supabaseClient.channel('public:chetak_quotations').on('postgres_changes', { event: '*', schema: 'public', table: 'chetak_quotations' }, payload => { refreshData(); }).subscribe();
