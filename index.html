@@ -491,6 +491,11 @@ const DOCUMENT_CHECKLIST = [
 ];
 
 let session = { user: null, profile: null };
+function isAdmin() { return (session.profile?.role || '').toLowerCase() === 'admin'; }
+function requireAdmin(action = 'delete data') {
+  if (!isAdmin()) { showToast(`Only admin can ${action}. Please contact your admin.`, 'error'); return false; }
+  return true;
+}
 
 const state = {
   currentPage: 'dashboard',
@@ -931,7 +936,7 @@ function renderStock() {
                   <td><div class="flex gap-1">
                     <button class="btn btn-ghost btn-sm" onclick="viewStock('${s.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
                     <button class="btn btn-ghost btn-sm" onclick="openStockModal('${s.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                    <button class="btn btn-ghost btn-sm text-red-600" onclick="deleteStock('${s.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+                    ${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteStock('${s.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>` : ''}
                   </div></td>
                 </tr>`).join('')}
               </tbody>
@@ -1028,6 +1033,7 @@ function viewStock(id) {
 }
 
 async function deleteStock(id) {
+  if (!requireAdmin()) return;
   const s = state.stock.find(x => x.id === id); if (!s) return;
   if (s.status === 'sold') { showToast('Cannot delete sold stock', 'warning'); return; }
   confirmDialog('Delete Stock', `Are you sure you want to delete ${s.vin_no}? This action cannot be undone.`, async () => {
@@ -1059,7 +1065,7 @@ function renderCustomers() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><p>No customers found</p></div>` : `
           <div class="table-wrap" style="border: none;"><table class="table">
             <thead><tr><th>SN</th><th>Customer Name</th><th>Phone</th><th>Email</th><th>Citizenship</th><th>Actions</th></tr></thead>
-            <tbody>${filtered.map((c, i) => `<tr><td>${i+1}</td><td><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">${getInitials(c.customer_name)}</div><span class="font-semibold">${escapeHtml(c.customer_name)}</span></div></td><td>${escapeHtml(c.phone)}</td><td class="text-xs">${escapeHtml(c.email || '—')}</td><td class="text-xs font-mono">${escapeHtml(c.citizenship_no || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewCustomer('${c.id}')" title="History"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h20v14H2z"/><path d="M8 21h8"/></svg></button><button class="btn btn-ghost btn-sm" onclick="openCustomerModal('${c.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="btn btn-ghost btn-sm text-red-600" onclick="deleteCustomer('${c.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td></tr>`).join('')}</tbody>
+            <tbody>${filtered.map((c, i) => `<tr><td>${i+1}</td><td><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">${getInitials(c.customer_name)}</div><span class="font-semibold">${escapeHtml(c.customer_name)}</span></div></td><td>${escapeHtml(c.phone)}</td><td class="text-xs">${escapeHtml(c.email || '—')}</td><td class="text-xs font-mono">${escapeHtml(c.citizenship_no || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewCustomer('${c.id}')" title="History"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h20v14H2z"/><path d="M8 21h8"/></svg></button><button class="btn btn-ghost btn-sm" onclick="openCustomerModal('${c.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteCustomer('${c.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
@@ -1133,6 +1139,7 @@ function viewCustomer(id) {
 }
 
 async function deleteCustomer(id) {
+  if (!requireAdmin()) return;
   const c = state.customers.find(x => x.id === id); if (!c) return;
   if (state.sales.some(s => s.customer_id === id)) { showToast('Cannot delete customer with sales records', 'warning'); return; }
   confirmDialog('Delete Customer', `Delete ${c.customer_name}?`, async () => {
@@ -1157,7 +1164,7 @@ function renderSales() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg><p>No sales records found</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
             <thead><tr><th>Sale No</th><th>Date</th><th>Customer</th><th>Model</th><th>VIN</th><th>Amount</th><th>Payment</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>${filtered.map(s => { const cust = state.customers.find(c => c.id === s.customer_id); return `<tr><td class="font-mono text-xs">${escapeHtml(s.sale_no)}</td><td class="text-xs">${formatDate(s.sale_date)}</td><td><p class="font-semibold text-xs">${escapeHtml(cust?.customer_name || '—')}</p><p class="text-[10px] text-gray-500">${escapeHtml(cust?.phone || '')}</p></td><td class="text-xs">${escapeHtml(s.model)}</td><td class="font-mono text-xs">${escapeHtml(s.vin_no)}</td><td class="font-semibold">${money(s.net_amount)}</td><td class="text-xs">${escapeHtml(s.payment_mode)}</td><td>${statusBadge(s.status)}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewSale('${s.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="btn btn-ghost btn-sm text-red-600" onclick="deleteSale('${s.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td></tr>`; }).join('')}</tbody>
+            <tbody>${filtered.map(s => { const cust = state.customers.find(c => c.id === s.customer_id); return `<tr><td class="font-mono text-xs">${escapeHtml(s.sale_no)}</td><td class="text-xs">${formatDate(s.sale_date)}</td><td><p class="font-semibold text-xs">${escapeHtml(cust?.customer_name || '—')}</p><p class="text-[10px] text-gray-500">${escapeHtml(cust?.phone || '')}</p></td><td class="text-xs">${escapeHtml(s.model)}</td><td class="font-mono text-xs">${escapeHtml(s.vin_no)}</td><td class="font-semibold">${money(s.net_amount)}</td><td class="text-xs">${escapeHtml(s.payment_mode)}</td><td>${statusBadge(s.status)}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewSale('${s.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteSale('${s.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`; }).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
@@ -1242,6 +1249,7 @@ function viewSale(id) {
 }
 
 async function deleteSale(id) {
+  if (!requireAdmin()) return;
   const s = state.sales.find(x => x.id === id); if (!s) return;
   if (state.deliveries.find(d => d.sale_id === id)) { showToast('Cannot delete sale with delivery', 'warning'); return; }
   confirmDialog('Delete Sale', `Delete ${s.sale_no}? Stock will be marked available again.`, async () => {
@@ -1269,7 +1277,7 @@ function renderDelivery() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 18H3c-.6 0-1-.4-1-1V7c0-.6.4-1 1-1h10c.6 0 1 .4 1 1v11"/><path d="M14 9h4l4 4v4c0 .6-.4 1-1 1h-2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg><p>No Delivery Order records</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
             <thead><tr><th>Delivery Order No</th><th>Date</th><th>Sale No</th><th>Customer</th><th>Model</th><th>VIN</th><th>Delivered By</th><th>Actions</th></tr></thead>
-            <tbody>${filtered.map(d => { const sale = state.sales.find(s => String(s.id) === String(d.sale_id)); const cust = state.customers.find(c => String(c.id) === String(d.customer_id)); return `<tr><td class="font-mono text-xs">${escapeHtml(d.delivery_no)}</td><td class="text-xs">${formatDate(d.delivery_date)}</td><td class="font-mono text-xs">${escapeHtml(sale?.sale_no || '—')}</td><td class="text-xs font-semibold">${escapeHtml(cust?.customer_name || '—')}</td><td class="text-xs">${escapeHtml(d.model)}</td><td class="font-mono text-xs">${escapeHtml(d.vin_no)}</td><td class="text-xs">${escapeHtml(d.delivered_by || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewDelivery('${d.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="btn btn-ghost btn-sm" onclick="printDeliverySheet('${d.id}')" title="Print"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/></svg></button><button class="btn btn-ghost btn-sm text-red-600" onclick="deleteDelivery('${d.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td></tr>`; }).join('')}</tbody>
+            <tbody>${filtered.map(d => { const sale = state.sales.find(s => String(s.id) === String(d.sale_id)); const cust = state.customers.find(c => String(c.id) === String(d.customer_id)); return `<tr><td class="font-mono text-xs">${escapeHtml(d.delivery_no)}</td><td class="text-xs">${formatDate(d.delivery_date)}</td><td class="font-mono text-xs">${escapeHtml(sale?.sale_no || '—')}</td><td class="text-xs font-semibold">${escapeHtml(cust?.customer_name || '—')}</td><td class="text-xs">${escapeHtml(d.model)}</td><td class="font-mono text-xs">${escapeHtml(d.vin_no)}</td><td class="text-xs">${escapeHtml(d.delivered_by || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewDelivery('${d.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="btn btn-ghost btn-sm" onclick="printDeliverySheet('${d.id}')" title="Print"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/></svg></button>${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteDelivery('${d.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`; }).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
@@ -1462,6 +1470,7 @@ function viewDelivery(id) {
 }
 
 async function deleteDelivery(id) {
+  if (!requireAdmin()) return;
   const d = state.deliveries.find(x => String(x.id) === String(id)); if (!d) return;
   confirmDialog('Delete Delivery', `Delete ${d.delivery_no}?`, async () => {
     try {
@@ -1524,7 +1533,7 @@ function renderQuotation() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><p>No quotations</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
             <thead><tr><th>Quote No</th><th>Date</th><th>Customer</th><th>Model</th><th>Total</th><th>Valid Until</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>${filtered.map(q => `<tr><td class="font-mono text-xs">${escapeHtml(q.quotation_no)}</td><td class="text-xs">${formatDate(q.quotation_date)}</td><td><p class="font-semibold text-xs">${escapeHtml(q.customer_name)}</p><p class="text-[10px] text-gray-500">${escapeHtml(q.phone)}</p></td><td class="text-xs">${escapeHtml(q.model)}</td><td class="font-semibold">${money(q.total_amount)}</td><td class="text-xs">${formatDate(q.valid_until)}</td><td>${statusBadge(q.status)}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="printQuotation('${q.id}')" title="Print"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/></svg></button><button class="btn btn-ghost btn-sm" onclick="openQuotationModal('${q.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="btn btn-ghost btn-sm text-red-600" onclick="deleteQuotation('${q.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td></tr>`).join('')}</tbody>
+            <tbody>${filtered.map(q => `<tr><td class="font-mono text-xs">${escapeHtml(q.quotation_no)}</td><td class="text-xs">${formatDate(q.quotation_date)}</td><td><p class="font-semibold text-xs">${escapeHtml(q.customer_name)}</p><p class="text-[10px] text-gray-500">${escapeHtml(q.phone)}</p></td><td class="text-xs">${escapeHtml(q.model)}</td><td class="font-semibold">${money(q.total_amount)}</td><td class="text-xs">${formatDate(q.valid_until)}</td><td>${statusBadge(q.status)}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="printQuotation('${q.id}')" title="Print"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/></svg></button><button class="btn btn-ghost btn-sm" onclick="openQuotationModal('${q.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteQuotation('${q.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
@@ -1629,6 +1638,7 @@ async function openQuotationModal(id = null) {
 }
 
 async function deleteQuotation(id) {
+  if (!requireAdmin()) return;
   const q = state.quotations.find(x => x.id === id); if (!q) return;
   confirmDialog('Delete Quotation', `Delete ${q.quotation_no}?`, async () => {
     try { await db.remove('chetak_quotations', id); showToast('Quotation deleted', 'success'); await refreshData(); } catch (e) { showToast('Delete failed: ' + e.message, 'error'); }
@@ -1719,13 +1729,13 @@ function renderPurchase() {
     <div class="view space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3 page-header">
         <div><h3 class="font-display font-bold text-lg text-gray-900">Purchases (${state.purchases.length})</h3><p class="text-gray-500 text-xs">Stock inward from suppliers</p></div>
-        <button class="btn btn-primary" onclick="openPurchaseModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New Purchase</button>
+        <div class="flex flex-wrap gap-2"><button class="btn btn-outline" onclick="exportModule('purchases')">Export Purchase</button><button class="btn btn-outline" onclick="triggerImport('purchases')">Import Purchase</button><button class="btn btn-primary" onclick="openPurchaseModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New Purchase</button></div>
       </div>
       <div class="card">
         ${state.purchases.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/></svg><p>No purchases</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
             <thead><tr><th>Purchase No</th><th>Date</th><th>Supplier</th><th>Model</th><th>Qty</th><th>Amount</th><th>Invoice</th><th>Actions</th></tr></thead>
-            <tbody>${state.purchases.map(p => `<tr><td class="font-mono text-xs">${escapeHtml(p.purchase_no)}</td><td class="text-xs">${formatDate(p.purchase_date)}</td><td class="text-xs font-semibold">${escapeHtml(p.supplier_name)}</td><td class="text-xs">${escapeHtml(p.model)}</td><td class="text-center font-bold">${p.quantity}</td><td class="font-semibold">${money(p.amount)}</td><td class="text-xs font-mono">${escapeHtml(p.invoice_no || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="openStockModal();" title="Add Stock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button><button class="btn btn-ghost btn-sm text-red-600" onclick="deletePurchase('${p.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button></div></td></tr>`).join('')}</tbody>
+            <tbody>${state.purchases.map(p => `<tr><td class="font-mono text-xs">${escapeHtml(p.purchase_no)}</td><td class="text-xs">${formatDate(p.purchase_date)}</td><td class="text-xs font-semibold">${escapeHtml(p.supplier_name)}</td><td class="text-xs">${escapeHtml(p.model)}</td><td class="text-center font-bold">${p.quantity}</td><td class="font-semibold">${money(p.amount)}</td><td class="text-xs font-mono">${escapeHtml(p.invoice_no || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="openStockModal();" title="Add Stock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deletePurchase('${p.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
@@ -1764,6 +1774,7 @@ async function openPurchaseModal() {
 }
 
 async function deletePurchase(id) {
+  if (!requireAdmin()) return;
   confirmDialog('Delete Purchase', 'Delete this purchase record?', async () => {
     try { await db.remove('chetak_purchases', id); showToast('Purchase deleted', 'success'); await refreshData(); } catch (e) { showToast('Delete failed: ' + e.message, 'error'); }
   });
