@@ -241,6 +241,7 @@
       <a class="nav-link" data-page="delivery-ledger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20v14H2z"/><path d="M2 9h20"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>Delivery Ledger</a>
       <a class="nav-link" data-page="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 4-4 4 4 5-5"/></svg>Reports</a>
       <div class="text-gray-600 text-[10px] font-bold uppercase tracking-wider px-3 mb-2 mt-4">System</div>
+      <a class="nav-link admin-only" data-page="users" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>User Management</a>
       <a class="nav-link" data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>Settings</a>
     </nav>
     <div class="p-3 border-t border-white/5">
@@ -505,9 +506,28 @@ function requireManage(action = 'edit this record') {
   return true;
 }
 
+function applyRoleVisibility() {
+  $$('.admin-only').forEach(el => { el.style.display = isAdmin() ? '' : 'none'; });
+}
+function requireActiveProfile() {
+  if (session.profile && session.profile.active === false) {
+    showToast('Your account is inactive. Please contact administrator.', 'error');
+    supabaseClient.auth.signOut();
+    return false;
+  }
+  return true;
+}
+async function loadUsers() {
+  if (!isAdmin()) { state.users = []; return []; }
+  const { data, error } = await supabaseClient.from('profiles').select('id,full_name,email,role,active,phone,created_at,updated_at').order('created_at', { ascending:false });
+  if (error) throw friendlyDbError(error);
+  state.users = data || [];
+  return state.users;
+}
+
 const state = {
   currentPage: 'dashboard',
-  stock: [], customers: [], sales: [], deliveries: [], quotations: [], purchases: [],
+  stock: [], customers: [], sales: [], deliveries: [], quotations: [], purchases: [], users: [],
   loading: false, charts: {}, filters: {}
 };
 
@@ -678,7 +698,8 @@ async function checkSession() {
     if (sbSession) {
       session.user = sbSession.user;
       const { data: profile } = await supabaseClient.from('profiles').select('*').eq('id', sbSession.user.id).maybeSingle();
-      session.profile = profile || { full_name: sbSession.user.email, email: sbSession.user.email, role: 'sales' };
+      session.profile = profile || { full_name: sbSession.user.email, email: sbSession.user.email, role: 'sales', active: true };
+      if (!requireActiveProfile()) return false;
       return true;
     }
   } catch (e) { console.error('Session check failed', e); }
@@ -699,7 +720,8 @@ async function handleLogin(e) {
     if (error) throw error;
     session.user = data.user;
     const { data: profile } = await supabaseClient.from('profiles').select('*').eq('id', data.user.id).maybeSingle();
-    session.profile = profile || { full_name: data.user.email, email: data.user.email, role: 'sales' };
+    session.profile = profile || { full_name: data.user.email, email: data.user.email, role: 'sales', active: true };
+    if (!requireActiveProfile()) { done(); return; }
     done();
     enterApp();
     showToast('Welcome back, ' + (session.profile.full_name || session.user.email), 'success');
@@ -724,6 +746,7 @@ function enterApp() {
   $('#userName').textContent = session.profile?.full_name || session.user?.email || 'User';
   $('#userRole').textContent = session.profile?.role || 'sales';
   $('#userAvatar').textContent = getInitials(session.profile?.full_name || session.user?.email);
+  applyRoleVisibility();
   setConnectionStatus('online');
   navigateTo('dashboard');
   updateTimeGreeting();
@@ -796,10 +819,12 @@ const PAGES = {
   'sales-ledger': { title: 'Sales Ledger', subtitle: 'Complete sales transaction ledger', render: renderSalesLedger },
   'delivery-ledger': { title: 'Delivery Ledger', subtitle: 'Complete delivery transaction ledger', render: renderDeliveryLedger },
   'reports': { title: 'Reports & Analytics', subtitle: 'Generate business reports', render: renderReports },
+  'users': { title: 'User Management', subtitle: 'Manage admin, staff and account access', render: renderUsers },
   'settings': { title: 'Settings', subtitle: 'Configure your portal', render: renderSettings }
 };
 
 function navigateTo(page) {
+  if (page === 'users' && !isAdmin()) { showToast('Only admin can access User Management.', 'error'); page = 'dashboard'; }
   if (!PAGES[page]) page = 'dashboard';
   state.currentPage = page;
   $$('.nav-link').forEach(l => l.classList.toggle('active', l.dataset.page === page));
@@ -2001,6 +2026,47 @@ function printReports() {
   printDocument(html);
 }
 
+
+/* ============================================================
+   USER MANAGEMENT - ADMIN ONLY
+   ============================================================ */
+const USER_ROLES = ['admin','manager','sales','staff','account','viewer'];
+function roleBadge(role) {
+  const r = String(role || 'sales').toLowerCase();
+  const cls = r === 'admin' ? 'badge-danger' : r === 'manager' ? 'badge-warning' : r === 'account' ? 'badge-info' : 'badge-accent';
+  return `<span class="badge ${cls}">${escapeHtml(r)}</span>`;
+}
+async function renderUsers() {
+  if (!isAdmin()) { $('#mainContent').innerHTML = '<div class="card p-6 text-center text-gray-500">Only admin can access User Management.</div>'; return; }
+  $('#mainContent').innerHTML = `<div class="view space-y-4"><div class="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><h3 class="font-display font-bold text-lg text-gray-900">User Management</h3><p class="text-gray-500 text-xs">Control roles and active/inactive access.</p></div><div class="flex gap-2"><button class="btn btn-outline" onclick="refreshUsers()">Refresh</button><button class="btn btn-primary" onclick="openCreateUserModal()">+ Add Staff</button></div></div><div class="card p-5"><div id="usersTableWrap" class="text-sm text-gray-500">Loading users...</div></div></div>`;
+  try { await loadUsers(); drawUsersTable(); } catch (e) { $('#usersTableWrap').innerHTML = `<div class="p-4 text-red-600">${escapeHtml(e.message || 'Failed to load users')}</div>`; }
+}
+function drawUsersTable() {
+  const wrap = $('#usersTableWrap'); if (!wrap) return;
+  const users = state.users || [];
+  if (!users.length) { wrap.innerHTML = '<div class="p-6 text-center text-gray-400">No user profiles found.</div>'; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table class="table"><thead><tr><th>User</th><th>Email</th><th>Phone</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>${users.map(u => `<tr><td><div class="font-semibold">${escapeHtml(u.full_name || '—')}</div></td><td class="text-xs">${escapeHtml(u.email || '—')}</td><td>${escapeHtml(u.phone || '—')}</td><td>${roleBadge(u.role)}</td><td>${u.active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td><td class="text-xs">${u.created_at ? formatDate(u.created_at) : '—'}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="openUserEditModal('${u.id}')">Edit</button><button class="btn btn-ghost btn-sm ${u.active ? 'text-red-600' : 'text-green-600'}" onclick="toggleUserActive('${u.id}')">${u.active ? 'Deactivate' : 'Activate'}</button></div></td></tr>`).join('')}</tbody></table></div>`;
+}
+async function refreshUsers() { try { await loadUsers(); drawUsersTable(); showToast('User list refreshed.', 'success'); } catch(e) { showToast(e.message || 'Failed to refresh users.', 'error'); } }
+function openUserEditModal(id) {
+  if (!isAdmin()) return requireAdmin('manage users');
+  const u = state.users.find(x => x.id === id); if (!u) return;
+  openModal(`<div class="modal-card max-w-lg"><div class="modal-head"><div><h3 class="font-display font-bold text-lg">Edit User</h3><p class="text-xs text-gray-500">Update profile, role and access</p></div><button class="btn btn-ghost btn-icon" onclick="closeModal()">×</button></div><form id="userEditForm" class="p-5 space-y-4"><div><label class="form-label">Full Name</label><input id="umName" class="form-input" value="${escapeHtml(u.full_name || '')}"></div><div><label class="form-label">Phone</label><input id="umPhone" class="form-input" value="${escapeHtml(u.phone || '')}"></div><div><label class="form-label">Role</label><select id="umRole" class="form-select">${USER_ROLES.map(r=>`<option value="${r}" ${String(u.role||'sales').toLowerCase()===r?'selected':''}>${r.toUpperCase()}</option>`).join('')}</select></div><div><label class="flex items-center gap-2 text-sm"><input type="checkbox" id="umActive" ${u.active ? 'checked':''}> Account Active</label></div><div id="umError" class="hidden-view text-xs text-red-600"></div><div class="flex justify-end gap-2 pt-3 border-t"><button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary">Save Changes</button></div></form></div>`);
+  $('#userEditForm').addEventListener('submit', async e => { e.preventDefault(); const err=$('#umError'); err.classList.add('hidden-view'); try { const patch={ full_name: $('#umName').value.trim() || null, phone: $('#umPhone').value.trim() || null, role: $('#umRole').value, active: $('#umActive').checked, updated_at: new Date().toISOString() }; const {error}=await supabaseClient.from('profiles').update(patch).eq('id',id); if(error) throw friendlyDbError(error); const i=state.users.findIndex(x=>x.id===id); if(i>=0) state.users[i]={...state.users[i],...patch}; if(id===session.user?.id) { session.profile={...session.profile,...patch}; $('#userName').textContent=session.profile.full_name||session.user.email; $('#userRole').textContent=session.profile.role; applyRoleVisibility(); } closeModal(); drawUsersTable(); showToast('User updated successfully.','success'); } catch(ex) { err.textContent=ex.message||'Failed to update user'; err.classList.remove('hidden-view'); } });
+}
+async function toggleUserActive(id) {
+  if (!isAdmin()) return requireAdmin('change account status');
+  const u=state.users.find(x=>x.id===id); if(!u) return;
+  if(id===session.user?.id && u.active) { showToast('You cannot deactivate your own current account.','error'); return; }
+  if(!confirm(`${u.active ? 'Deactivate' : 'Activate'} ${u.email || 'this user'}?`)) return;
+  try { const {error}=await supabaseClient.from('profiles').update({active:!u.active,updated_at:new Date().toISOString()}).eq('id',id); if(error) throw friendlyDbError(error); u.active=!u.active; drawUsersTable(); showToast(`User ${u.active?'activated':'deactivated'} successfully.`,'success'); } catch(e) { showToast(e.message||'Failed to change status.','error'); }
+}
+function openCreateUserModal() {
+  if (!isAdmin()) return requireAdmin('create users');
+  openModal(`<div class="modal-card max-w-lg"><div class="modal-head"><div><h3 class="font-display font-bold text-lg">Add New Staff</h3><p class="text-xs text-gray-500">Creates a Supabase Auth account and profile.</p></div><button class="btn btn-ghost btn-icon" onclick="closeModal()">×</button></div><form id="createUserForm" class="p-5 space-y-4"><div><label class="form-label">Full Name *</label><input id="newUserName" required class="form-input" placeholder="Staff full name"></div><div><label class="form-label">Email *</label><input id="newUserEmail" type="email" required class="form-input" placeholder="staff@example.com"></div><div><label class="form-label">Phone</label><input id="newUserPhone" class="form-input"></div><div><label class="form-label">Temporary Password *</label><input id="newUserPassword" type="password" minlength="8" required class="form-input" placeholder="Minimum 8 characters"></div><div><label class="form-label">Role</label><select id="newUserRole" class="form-select">${USER_ROLES.filter(r=>r!=='admin').map(r=>`<option value="${r}" ${r==='staff'?'selected':''}>${r.toUpperCase()}</option>`).join('')}</select></div><div class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">New staff accounts are created securely through the Supabase Edge Function <code>admin-create-user</code>.</div><div id="createUserError" class="hidden-view text-xs text-red-600"></div><div class="flex justify-end gap-2 pt-3 border-t"><button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary">Create Staff</button></div></form></div>`);
+  $('#createUserForm').addEventListener('submit', async e=>{e.preventDefault(); const err=$('#createUserError'); err.classList.add('hidden-view'); const payload={full_name:$('#newUserName').value.trim(),email:$('#newUserEmail').value.trim(),phone:$('#newUserPhone').value.trim(),password:$('#newUserPassword').value,role:$('#newUserRole').value}; try { const {data,error}=await supabaseClient.functions.invoke('admin-create-user',{body:payload}); if(error) throw error; if(data?.error) throw new Error(data.error); closeModal(); await refreshUsers(); showToast(data?.message || 'Staff account created successfully.','success'); return data; } catch(ex) { err.textContent=(ex.message||'User creation failed'); err.classList.remove('hidden-view'); } });
+}
+
 /* ============================================================
    SETTINGS
    ============================================================ */
@@ -2106,7 +2172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   supabaseClient.auth.onAuthStateChange((event, sbSession) => {
     if (event === 'SIGNED_OUT') { session = { user: null, profile: null }; showLogin(); }
     else if (event === 'SIGNED_IN' && sbSession) {
-      if (!session.user) { session.user = sbSession.user; supabaseClient.from('profiles').select('*').eq('id', sbSession.user.id).maybeSingle().then(({ data: profile }) => { session.profile = profile || { full_name: sbSession.user.email, email: sbSession.user.email, role: 'sales' }; enterApp(); }); }
+      if (!session.user) { session.user = sbSession.user; supabaseClient.from('profiles').select('*').eq('id', sbSession.user.id).maybeSingle().then(({ data: profile }) => { session.profile = profile || { full_name: sbSession.user.email, email: sbSession.user.email, role: 'sales', active: true }; if (requireActiveProfile()) enterApp(); }); }
     }
   });
 
