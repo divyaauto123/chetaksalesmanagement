@@ -926,12 +926,12 @@ function renderStock() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/></svg><p>No stock records found</p></div>` : `
           <div class="table-wrap" style="border: none;">
             <table class="table">
-              <thead><tr><th>SN</th><th>Model</th><th>Colour</th><th>VIN</th><th>Chassis</th><th>Motor</th><th>Selling Price</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>SN</th><th>Model</th><th>Colour</th><th>VIN</th><th>Motor</th><th>Selling Price</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>${filtered.map((s, i) => `
                 <tr>
                   <td>${i + 1}</td>
                   <td><p class="font-semibold text-gray-900">${escapeHtml(s.model)}</p><p class="text-[11px] text-gray-500">${escapeHtml(s.variant || 'Standard')}</p></td>
-                  <td>${escapeHtml(s.colour)}</td><td class="font-mono text-xs">${escapeHtml(s.vin_no)}</td><td class="font-mono text-xs">${escapeHtml(s.chassis_no)}</td><td class="font-mono text-xs">${escapeHtml(s.motor_no)}</td>
+                  <td>${escapeHtml(s.colour)}</td><td class="font-mono text-xs">${escapeHtml(s.vin_no)}</td><td class="font-mono text-xs">${escapeHtml(s.motor_no)}</td>
                   <td class="font-semibold">${money(s.selling_price)}</td><td>${statusBadge(s.status)}</td>
                   <td><div class="flex gap-1">
                     <button class="btn btn-ghost btn-sm" onclick="viewStock('${s.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
