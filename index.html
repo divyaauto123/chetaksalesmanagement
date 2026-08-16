@@ -492,8 +492,16 @@ const DOCUMENT_CHECKLIST = [
 
 let session = { user: null, profile: null };
 function isAdmin() { return (session.profile?.role || '').toLowerCase() === 'admin'; }
+function isManager() { return (session.profile?.role || '').toLowerCase() === 'manager'; }
+function isViewer() { return (session.profile?.role || '').toLowerCase() === 'viewer'; }
+function canManage() { return isAdmin() || isManager(); } // matches DB RLS: update/delete = admin or manager
+function canCreate() { return isAdmin() || isManager() || (session.profile?.role || '').toLowerCase() === 'sales'; }
 function requireAdmin(action = 'delete data') {
   if (!isAdmin()) { showToast(`Only admin can ${action}. Please contact your admin.`, 'error'); return false; }
+  return true;
+}
+function requireManage(action = 'edit this record') {
+  if (!canManage()) { showToast(`Only managers/admin can ${action}. Please contact your admin.`, 'error'); return false; }
   return true;
 }
 
@@ -513,20 +521,41 @@ const db = {
     return data || [];
   },
   async insert(table, row) {
-    const { data, error } = await supabaseClient.from(table).insert(row).select();
-    if (error) throw error;
+    const payload = { ...row };
+    if (session.user?.id) payload.created_by = session.user.id;
+    const { data, error } = await supabaseClient.from(table).insert(payload).select();
+    if (error) throw friendlyDbError(error);
     return data[0];
   },
   async update(table, id, patch) {
     const { data, error } = await supabaseClient.from(table).update(patch).eq('id', id).select();
-    if (error) throw error;
+    if (error) throw friendlyDbError(error);
+    if (!data || !data.length) throw new Error('Update was blocked — you may not have permission to edit this record. Contact your admin/manager.');
     return data[0];
   },
   async remove(table, id) {
     const { error } = await supabaseClient.from(table).delete().eq('id', id);
-    if (error) throw error;
+    if (error) throw friendlyDbError(error);
   }
 };
+
+// Translates raw Postgres/Supabase errors into messages staff can actually understand.
+function friendlyDbError(error) {
+  const msg = error?.message || '';
+  const code = error?.code || '';
+  if (code === '23505' || /duplicate key|unique constraint/i.test(msg)) {
+    if (/vin/i.test(msg)) return new Error('Duplicate VIN — this VIN number already exists in stock. Please check and re-enter.');
+    if (/sale_no/i.test(msg)) return new Error('Duplicate Sale Number detected.');
+    if (/delivery_no/i.test(msg)) return new Error('Duplicate Delivery Number detected.');
+    if (/quotation_no|qno/i.test(msg)) return new Error('Duplicate Quotation Number detected.');
+    if (/purchase_no/i.test(msg)) return new Error('Duplicate Purchase Number detected.');
+    return new Error('This record already exists (duplicate entry).');
+  }
+  if (code === '42501' || /row-level security|permission denied/i.test(msg)) {
+    return new Error('Permission denied — your role does not allow this action. Contact your admin/manager.');
+  }
+  return error;
+}
 
 /* ============================================================
    UTILITIES
@@ -926,17 +955,18 @@ function renderStock() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/></svg><p>No stock records found</p></div>` : `
           <div class="table-wrap" style="border: none;">
             <table class="table">
-              <thead><tr><th>SN</th><th>Model</th><th>Colour</th><th>VIN</th><th>Motor</th><th>Selling Price</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>SN</th><th>Model</th><th>Year</th><th>Colour</th><th>VIN</th><th>Motor</th><th>Selling Price</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>${filtered.map((s, i) => `
                 <tr>
                   <td>${i + 1}</td>
                   <td><p class="font-semibold text-gray-900">${escapeHtml(s.model)}</p><p class="text-[11px] text-gray-500">${escapeHtml(s.variant || 'Standard')}</p></td>
+                  <td class="text-xs">${escapeHtml(s.model_year || '—')}</td>
                   <td>${escapeHtml(s.colour)}</td><td class="font-mono text-xs">${escapeHtml(s.vin_no)}</td><td class="font-mono text-xs">${escapeHtml(s.motor_no)}</td>
                   <td class="font-semibold">${money(s.selling_price)}</td><td>${statusBadge(s.status)}</td>
                   <td><div class="flex gap-1">
                     <button class="btn btn-ghost btn-sm" onclick="viewStock('${s.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
                     <button class="btn btn-ghost btn-sm" onclick="openStockModal('${s.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                    ${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteStock('${s.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>` : ''}
+                    ${canManage() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteStock('${s.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>` : ''}
                   </div></td>
                 </tr>`).join('')}
               </tbody>
@@ -961,6 +991,9 @@ async function openStockModal(id = null) {
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div><label class="label">Model <span class="req">*</span></label><select name="model" class="select" required>${CHETAK_MODELS.map(m => `<option ${existing?.model === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
         <div><label class="label">Variant</label><input name="variant" class="input" value="${escapeHtml(existing?.variant || 'Standard')}" placeholder="Standard / Premium"></div>
+        <div><label class="label">Model Year</label><input name="model_year" class="input" value="${escapeHtml(existing?.model_year || new Date().getFullYear())}" placeholder="e.g. 2026" inputmode="numeric"></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div><label class="label">Colour <span class="req">*</span></label><select name="colour" class="select" required>${COLOURS.map(c => `<option ${existing?.colour === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
       </div>
       <div class="grid grid-cols-1 gap-3">
@@ -997,7 +1030,7 @@ async function openStockModal(id = null) {
     const errBox = $('#stockFormError'); errBox.classList.add('hidden-view');
     const fd = new FormData(e.target);
     const data = Object.fromEntries(fd.entries());
-    data.purchase_price = Number(data.purchase_price); data.selling_price = Number(data.selling_price);
+    data.purchase_price = Number(data.purchase_price); data.selling_price = Number(data.selling_price); data.model_year = data.model_year ? Number(data.model_year) : null;
     data.vin_no = data.vin_no.toUpperCase();
     if (data.selling_price <= 0) { errBox.textContent = 'Selling price must be positive.'; errBox.classList.remove('hidden-view'); return; }
     const btn = $('#stockSaveBtn'); const done = showLoading(btn, 'Saving...');
@@ -1021,7 +1054,7 @@ function viewStock(id) {
     </div>
     <div class="p-5">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-        ${[['Model', s.model], ['Variant', s.variant], ['Colour', s.colour], ['Status', `<span class="badge ${statusBadge(s.status).match(/badge-\w+/)[0]}">${s.status}</span>`], ['VIN Number', s.vin_no], ['Motor Number', s.motor_no], ['Battery Number', s.battery_no], ['Key Number', s.key_no], ['Registration Number', s.registration_no || '—'], ['Purchase Date', formatDate(s.purchase_date)], ['Purchase Invoice', s.purchase_invoice_no], ['Purchase Price', money(s.purchase_price)], ['Selling Price', money(s.selling_price)], ['Location', s.location], ['Remarks', s.remarks || '—']].map(([k, v]) => `<div><p class="text-xs text-gray-500 font-semibold uppercase mb-1">${k}</p><p class="font-medium text-gray-900">${v}</p></div>`).join('')}
+        ${[['Model', s.model], ['Variant', s.variant], ['Model Year', s.model_year || '—'], ['Colour', s.colour], ['Status', `<span class="badge ${statusBadge(s.status).match(/badge-\w+/)[0]}">${s.status}</span>`], ['VIN Number', s.vin_no], ['Motor Number', s.motor_no], ['Battery Number', s.battery_no], ['Key Number', s.key_no], ['Registration Number', s.registration_no || '—'], ['Purchase Date', formatDate(s.purchase_date)], ['Purchase Invoice', s.purchase_invoice_no], ['Purchase Price', money(s.purchase_price)], ['Selling Price', money(s.selling_price)], ['Location', s.location], ['Remarks', s.remarks || '—']].map(([k, v]) => `<div><p class="text-xs text-gray-500 font-semibold uppercase mb-1">${k}</p><p class="font-medium text-gray-900">${v}</p></div>`).join('')}
       </div>
       <div class="flex gap-3 justify-end mt-5 pt-4 border-t border-gray-100"><button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="closeModal(); openStockModal('${s.id}')">Edit</button></div>
     </div>
@@ -1029,7 +1062,7 @@ function viewStock(id) {
 }
 
 async function deleteStock(id) {
-  if (!requireAdmin()) return;
+  if (!requireManage('delete data')) return;
   const s = state.stock.find(x => x.id === id); if (!s) return;
   if (s.status === 'sold') { showToast('Cannot delete sold stock', 'warning'); return; }
   confirmDialog('Delete Stock', `Are you sure you want to delete ${s.vin_no}? This action cannot be undone.`, async () => {
@@ -1040,7 +1073,7 @@ async function deleteStock(id) {
 
 function printStockReport() {
   closeModal();
-  const html = `<div class="print-doc delivery-order-print"><div style="text-align:center; border-bottom: 2px solid #d97706; padding-bottom: 12px; margin-bottom: 7px;"><img src="${COMPANY_LOGO}" alt="${COMPANY.name}" style="height:52px;width:auto;display:block;margin:0 auto 10px;"><h1 style="font-size: 20px; color: #0c1117;">${COMPANY.name}</h1><p style="font-size: 11px; color: #666;">${COMPANY.address} | ${COMPANY.phone} | ${COMPANY.email}</p><h2 style="font-size: 16px; margin-top: 10px; color: #d97706;">STOCK REPORT</h2><p style="font-size: 10px; color: #999;">Generated: ${new Date().toLocaleString('en-IN')}</p></div><table><thead><tr><th>SN</th><th>Model</th><th>Colour</th><th>VIN</th><th>Motor</th><th>Status</th><th>Price</th></tr></thead><tbody>${state.stock.map((s, i) => `<tr><td>${i+1}</td><td>${escapeHtml(s.model)}</td><td>${escapeHtml(s.colour)}</td><td>${escapeHtml(s.vin_no)}</td><td>${escapeHtml(s.motor_no)}</td><td>${escapeHtml(s.status)}</td><td>${money(s.selling_price)}</td></tr>`).join('')}</tbody></table><p style="margin-top: 14px; font-size: 10px; color: #666;">Total Records: ${state.stock.length}</p></div>`;
+  const html = `<div class="print-doc delivery-order-print"><div style="text-align:center; border-bottom: 2px solid #d97706; padding-bottom: 12px; margin-bottom: 7px;"><img src="${COMPANY_LOGO}" alt="${COMPANY.name}" style="height:52px;width:auto;display:block;margin:0 auto 10px;"><h1 style="font-size: 20px; color: #0c1117;">${COMPANY.name}</h1><p style="font-size: 11px; color: #666;">${COMPANY.address} | ${COMPANY.phone} | ${COMPANY.email}</p><h2 style="font-size: 16px; margin-top: 10px; color: #d97706;">STOCK REPORT</h2><p style="font-size: 10px; color: #999;">Generated: ${new Date().toLocaleString('en-IN')}</p></div><table><thead><tr><th>SN</th><th>Model</th><th>Year</th><th>Colour</th><th>VIN</th><th>Motor</th><th>Status</th><th>Price</th></tr></thead><tbody>${state.stock.map((s, i) => `<tr><td>${i+1}</td><td>${escapeHtml(s.model)}</td><td>${escapeHtml(s.model_year || '—')}</td><td>${escapeHtml(s.colour)}</td><td>${escapeHtml(s.vin_no)}</td><td>${escapeHtml(s.motor_no)}</td><td>${escapeHtml(s.status)}</td><td>${money(s.selling_price)}</td></tr>`).join('')}</tbody></table><p style="margin-top: 14px; font-size: 10px; color: #666;">Total Records: ${state.stock.length}</p></div>`;
   printDocument(html);
 }
 
@@ -1061,7 +1094,7 @@ function renderCustomers() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><p>No customers found</p></div>` : `
           <div class="table-wrap" style="border: none;"><table class="table">
             <thead><tr><th>SN</th><th>Customer Name</th><th>Phone</th><th>Email</th><th>Citizenship</th><th>Actions</th></tr></thead>
-            <tbody>${filtered.map((c, i) => `<tr><td>${i+1}</td><td><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">${getInitials(c.customer_name)}</div><span class="font-semibold">${escapeHtml(c.customer_name)}</span></div></td><td>${escapeHtml(c.phone)}</td><td class="text-xs">${escapeHtml(c.email || '—')}</td><td class="text-xs font-mono">${escapeHtml(c.citizenship_no || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewCustomer('${c.id}')" title="History"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h20v14H2z"/><path d="M8 21h8"/></svg></button><button class="btn btn-ghost btn-sm" onclick="openCustomerModal('${c.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteCustomer('${c.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
+            <tbody>${filtered.map((c, i) => `<tr><td>${i+1}</td><td><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">${getInitials(c.customer_name)}</div><span class="font-semibold">${escapeHtml(c.customer_name)}</span></div></td><td>${escapeHtml(c.phone)}</td><td class="text-xs">${escapeHtml(c.email || '—')}</td><td class="text-xs font-mono">${escapeHtml(c.citizenship_no || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewCustomer('${c.id}')" title="History"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h20v14H2z"/><path d="M8 21h8"/></svg></button><button class="btn btn-ghost btn-sm" onclick="openCustomerModal('${c.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>${canManage() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteCustomer('${c.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
@@ -1135,7 +1168,7 @@ function viewCustomer(id) {
 }
 
 async function deleteCustomer(id) {
-  if (!requireAdmin()) return;
+  if (!requireManage('delete data')) return;
   const c = state.customers.find(x => x.id === id); if (!c) return;
   if (state.sales.some(s => s.customer_id === id)) { showToast('Cannot delete customer with sales records', 'warning'); return; }
   confirmDialog('Delete Customer', `Delete ${c.customer_name}?`, async () => {
@@ -1160,7 +1193,7 @@ function renderSales() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg><p>No sales records found</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
             <thead><tr><th>Sale No</th><th>Date</th><th>Customer</th><th>Model</th><th>VIN</th><th>Amount</th><th>Payment</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>${filtered.map(s => { const cust = state.customers.find(c => c.id === s.customer_id); return `<tr><td class="font-mono text-xs">${escapeHtml(s.sale_no)}</td><td class="text-xs">${formatDate(s.sale_date)}</td><td><p class="font-semibold text-xs">${escapeHtml(cust?.customer_name || '—')}</p><p class="text-[10px] text-gray-500">${escapeHtml(cust?.phone || '')}</p></td><td class="text-xs">${escapeHtml(s.model)}</td><td class="font-mono text-xs">${escapeHtml(s.vin_no)}</td><td class="font-semibold">${money(s.net_amount)}</td><td class="text-xs">${escapeHtml(s.payment_mode)}</td><td>${statusBadge(s.status)}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewSale('${s.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteSale('${s.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`; }).join('')}</tbody>
+            <tbody>${filtered.map(s => { const cust = state.customers.find(c => c.id === s.customer_id); return `<tr><td class="font-mono text-xs">${escapeHtml(s.sale_no)}</td><td class="text-xs">${formatDate(s.sale_date)}</td><td><p class="font-semibold text-xs">${escapeHtml(cust?.customer_name || '—')}</p><p class="text-[10px] text-gray-500">${escapeHtml(cust?.phone || '')}</p></td><td class="text-xs">${escapeHtml(s.model)}</td><td class="font-mono text-xs">${escapeHtml(s.vin_no)}</td><td class="font-semibold">${money(s.net_amount)}</td><td class="text-xs">${escapeHtml(s.payment_mode)}</td><td>${statusBadge(s.status)}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewSale('${s.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>${canManage() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteSale('${s.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`; }).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
@@ -1245,7 +1278,7 @@ function viewSale(id) {
 }
 
 async function deleteSale(id) {
-  if (!requireAdmin()) return;
+  if (!requireManage('delete data')) return;
   const s = state.sales.find(x => x.id === id); if (!s) return;
   if (state.deliveries.find(d => d.sale_id === id)) { showToast('Cannot delete sale with delivery', 'warning'); return; }
   confirmDialog('Delete Sale', `Delete ${s.sale_no}? Stock will be marked available again.`, async () => {
@@ -1273,7 +1306,7 @@ function renderDelivery() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 18H3c-.6 0-1-.4-1-1V7c0-.6.4-1 1-1h10c.6 0 1 .4 1 1v11"/><path d="M14 9h4l4 4v4c0 .6-.4 1-1 1h-2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg><p>No Delivery Order records</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
             <thead><tr><th>Delivery Order No</th><th>Date</th><th>Sale No</th><th>Customer</th><th>Model</th><th>VIN</th><th>Delivered By</th><th>Actions</th></tr></thead>
-            <tbody>${filtered.map(d => { const sale = state.sales.find(s => String(s.id) === String(d.sale_id)); const cust = state.customers.find(c => String(c.id) === String(d.customer_id)); return `<tr><td class="font-mono text-xs">${escapeHtml(d.delivery_no)}</td><td class="text-xs">${formatDate(d.delivery_date)}</td><td class="font-mono text-xs">${escapeHtml(sale?.sale_no || '—')}</td><td class="text-xs font-semibold">${escapeHtml(cust?.customer_name || '—')}</td><td class="text-xs">${escapeHtml(d.model)}</td><td class="font-mono text-xs">${escapeHtml(d.vin_no)}</td><td class="text-xs">${escapeHtml(d.delivered_by || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewDelivery('${d.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="btn btn-ghost btn-sm" onclick="printDeliverySheet('${d.id}')" title="Print"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/></svg></button>${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteDelivery('${d.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`; }).join('')}</tbody>
+            <tbody>${filtered.map(d => { const sale = state.sales.find(s => String(s.id) === String(d.sale_id)); const cust = state.customers.find(c => String(c.id) === String(d.customer_id)); return `<tr><td class="font-mono text-xs">${escapeHtml(d.delivery_no)}</td><td class="text-xs">${formatDate(d.delivery_date)}</td><td class="font-mono text-xs">${escapeHtml(sale?.sale_no || '—')}</td><td class="text-xs font-semibold">${escapeHtml(cust?.customer_name || '—')}</td><td class="text-xs">${escapeHtml(d.model)}</td><td class="font-mono text-xs">${escapeHtml(d.vin_no)}</td><td class="text-xs">${escapeHtml(d.delivered_by || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="viewDelivery('${d.id}')" title="View"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="btn btn-ghost btn-sm" onclick="printDeliverySheet('${d.id}')" title="Print"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/></svg></button>${canManage() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteDelivery('${d.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`; }).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
@@ -1464,7 +1497,7 @@ function viewDelivery(id) {
 }
 
 async function deleteDelivery(id) {
-  if (!requireAdmin()) return;
+  if (!requireManage('delete data')) return;
   const d = state.deliveries.find(x => String(x.id) === String(id)); if (!d) return;
   confirmDialog('Delete Delivery', `Delete ${d.delivery_no}?`, async () => {
     try {
@@ -1527,7 +1560,7 @@ function renderQuotation() {
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><p>No quotations</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
             <thead><tr><th>Quote No</th><th>Date</th><th>Customer</th><th>Model</th><th>Total</th><th>Valid Until</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>${filtered.map(q => `<tr><td class="font-mono text-xs">${escapeHtml(q.quotation_no)}</td><td class="text-xs">${formatDate(q.quotation_date)}</td><td><p class="font-semibold text-xs">${escapeHtml(q.customer_name)}</p><p class="text-[10px] text-gray-500">${escapeHtml(q.phone)}</p></td><td class="text-xs">${escapeHtml(q.model)}</td><td class="font-semibold">${money(q.total_amount)}</td><td class="text-xs">${formatDate(q.valid_until)}</td><td>${statusBadge(q.status)}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="printQuotation('${q.id}')" title="Print"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/></svg></button><button class="btn btn-ghost btn-sm" onclick="openQuotationModal('${q.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteQuotation('${q.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
+            <tbody>${filtered.map(q => `<tr><td class="font-mono text-xs">${escapeHtml(q.quotation_no)}</td><td class="text-xs">${formatDate(q.quotation_date)}</td><td><p class="font-semibold text-xs">${escapeHtml(q.customer_name)}</p><p class="text-[10px] text-gray-500">${escapeHtml(q.phone)}</p></td><td class="text-xs">${escapeHtml(q.model)}</td><td class="font-semibold">${money(q.total_amount)}</td><td class="text-xs">${formatDate(q.valid_until)}</td><td>${statusBadge(q.status)}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="printQuotation('${q.id}')" title="Print"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/></svg></button><button class="btn btn-ghost btn-sm" onclick="openQuotationModal('${q.id}')" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>${canManage() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deleteQuotation('${q.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
@@ -1632,7 +1665,7 @@ async function openQuotationModal(id = null) {
 }
 
 async function deleteQuotation(id) {
-  if (!requireAdmin()) return;
+  if (!requireManage('delete data')) return;
   const q = state.quotations.find(x => x.id === id); if (!q) return;
   confirmDialog('Delete Quotation', `Delete ${q.quotation_no}?`, async () => {
     try { await db.remove('chetak_quotations', id); showToast('Quotation deleted', 'success'); await refreshData(); } catch (e) { showToast('Delete failed: ' + e.message, 'error'); }
@@ -1729,7 +1762,7 @@ function renderPurchase() {
         ${state.purchases.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/></svg><p>No purchases</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
             <thead><tr><th>Purchase No</th><th>Date</th><th>Supplier</th><th>Model</th><th>Qty</th><th>Amount</th><th>Invoice</th><th>Actions</th></tr></thead>
-            <tbody>${state.purchases.map(p => `<tr><td class="font-mono text-xs">${escapeHtml(p.purchase_no)}</td><td class="text-xs">${formatDate(p.purchase_date)}</td><td class="text-xs font-semibold">${escapeHtml(p.supplier_name)}</td><td class="text-xs">${escapeHtml(p.model)}</td><td class="text-center font-bold">${p.quantity}</td><td class="font-semibold">${money(p.amount)}</td><td class="text-xs font-mono">${escapeHtml(p.invoice_no || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="openStockModal();" title="Add Stock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>${isAdmin() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deletePurchase('${p.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
+            <tbody>${state.purchases.map(p => `<tr><td class="font-mono text-xs">${escapeHtml(p.purchase_no)}</td><td class="text-xs">${formatDate(p.purchase_date)}</td><td class="text-xs font-semibold">${escapeHtml(p.supplier_name)}</td><td class="text-xs">${escapeHtml(p.model)}</td><td class="text-center font-bold">${p.quantity}</td><td class="font-semibold">${money(p.amount)}</td><td class="text-xs font-mono">${escapeHtml(p.invoice_no || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="openStockModal();" title="Add Stock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>${canManage() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deletePurchase('${p.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
@@ -1768,7 +1801,7 @@ async function openPurchaseModal() {
 }
 
 async function deletePurchase(id) {
-  if (!requireAdmin()) return;
+  if (!requireManage('delete data')) return;
   confirmDialog('Delete Purchase', 'Delete this purchase record?', async () => {
     try { await db.remove('chetak_purchases', id); showToast('Purchase deleted', 'success'); await refreshData(); } catch (e) { showToast('Delete failed: ' + e.message, 'error'); }
   });
@@ -1781,8 +1814,8 @@ async function deletePurchase(id) {
 const IMPORT_EXPORT_CONFIG = {
   stock: {
     table: 'chetak_stock', stateKey: 'stock', filename: 'Chetak_Stock',
-    fields: ['model','variant','colour','vin_no','motor_no','battery_no','key_no','registration_no','purchase_date','purchase_invoice_no','purchase_price','selling_price','location','status','remarks'],
-    aliases: {model:['model','bike model','vehicle model'],variant:['variant','type'],colour:['colour','color'],vin_no:['vin','vin no','vin number','frame no','frame number'],motor_no:['motor','motor no','motor number','engine no','engine number'],battery_no:['battery','battery no','battery number'],key_no:['key','key no','key number'],registration_no:['registration','registration no','registration number','reg no','number plate'],purchase_date:['purchase date','date','inward date'],purchase_invoice_no:['purchase invoice','invoice no','invoice number','purchase invoice no'],purchase_price:['purchase price','cost','cost price','buying price'],selling_price:['selling price','sale price','mrp','price'],location:['location','warehouse','branch'],status:['status'],remarks:['remarks','remark','note','notes']}
+    fields: ['model','variant','model_year','colour','vin_no','motor_no','battery_no','key_no','registration_no','purchase_date','purchase_invoice_no','purchase_price','selling_price','location','status','remarks'],
+    aliases: {model:['model','bike model','vehicle model'],variant:['variant','type'],model_year:['model year','year','mfg year'],colour:['colour','color'],vin_no:['vin','vin no','vin number','frame no','frame number'],motor_no:['motor','motor no','motor number','engine no','engine number'],battery_no:['battery','battery no','battery number'],key_no:['key','key no','key number'],registration_no:['registration','registration no','registration number','reg no','number plate'],purchase_date:['purchase date','date','inward date'],purchase_invoice_no:['purchase invoice','invoice no','invoice number','purchase invoice no'],purchase_price:['purchase price','cost','cost price','buying price'],selling_price:['selling price','sale price','mrp','price'],location:['location','warehouse','branch'],status:['status'],remarks:['remarks','remark','note','notes']}
   },
   sales: {
     table: 'chetak_sales', stateKey: 'sales', filename: 'Chetak_Sales',
@@ -1800,7 +1833,7 @@ function num(v){ const n=Number(String(v??'').replace(/[^0-9.-]/g,'')); return N
 function cleanDate(v){ if(v==null||v==='') return null; if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10); if(typeof v==='number' && window.XLSX){ const d=XLSX.SSF.parse_date_code(v); if(d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`; } const dt=new Date(v); return isNaN(dt)?String(v).slice(0,10):dt.toISOString().slice(0,10); }
 function valueFromRow(row, aliases){ const map={}; Object.keys(row).forEach(k=>map[normHeader(k)]=row[k]); for(const a of aliases){ if(map[normHeader(a)]!==undefined && map[normHeader(a)]!=='') return map[normHeader(a)]; } return ''; }
 function mapImportRow(type,row){ const cfg=IMPORT_EXPORT_CONFIG[type], out={}; cfg.fields.forEach(f=>out[f]=valueFromRow(row,cfg.aliases[f]||[f]));
-  if(type==='stock'){ ['purchase_price','selling_price'].forEach(f=>out[f]=num(out[f])); out.purchase_date=cleanDate(out.purchase_date)||todayStr(); out.status=String(out.status||'available').toLowerCase(); if(!STOCK_STATUSES.includes(out.status)) out.status='available'; out.vin_no=String(out.vin_no||'').trim().toUpperCase(); out.motor_no=String(out.motor_no||'').trim().toUpperCase(); out.battery_no=String(out.battery_no||'').trim().toUpperCase(); out.key_no=String(out.key_no||'').trim().toUpperCase(); out.registration_no=String(out.registration_no||'').trim().toUpperCase(); }
+  if(type==='stock'){ ['purchase_price','selling_price'].forEach(f=>out[f]=num(out[f])); out.model_year = out.model_year ? Number(out.model_year) : null; out.purchase_date=cleanDate(out.purchase_date)||todayStr(); out.status=String(out.status||'available').toLowerCase(); if(!STOCK_STATUSES.includes(out.status)) out.status='available'; out.vin_no=String(out.vin_no||'').trim().toUpperCase(); out.motor_no=String(out.motor_no||'').trim().toUpperCase(); out.battery_no=String(out.battery_no||'').trim().toUpperCase(); out.key_no=String(out.key_no||'').trim().toUpperCase(); out.registration_no=String(out.registration_no||'').trim().toUpperCase(); }
   if(type==='sales'){ ['selling_price','discount','net_amount','down_payment','finance_amount'].forEach(f=>out[f]=num(out[f])); out.sale_date=cleanDate(out.sale_date)||todayStr(); out.status=String(out.status||'confirmed').toLowerCase(); if(!['confirmed','pending'].includes(out.status)) out.status='confirmed'; out.vin_no=String(out.vin_no||'').trim().toUpperCase(); if(!out.net_amount) out.net_amount=Math.max(0,out.selling_price-out.discount); }
   if(type==='purchases'){ out.quantity=Math.max(1,num(out.quantity)||1); out.amount=num(out.amount); out.purchase_date=cleanDate(out.purchase_date)||todayStr(); }
   return out;
