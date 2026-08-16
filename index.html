@@ -1030,7 +1030,10 @@ async function openStockModal(id = null) {
         <div><label class="label">Key Number</label><input name="key_no" class="input font-mono" value="${escapeHtml(existing?.key_no || '')}" placeholder="KY..."></div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div><label class="label">Registration Number</label><input name="registration_no" class="input" value="${escapeHtml(existing?.registration_no || '')}" placeholder="BA 02 PA 1234" style="text-transform: uppercase;"></div>
+        <div><label class="label">Lumbini Registration Number</label><input name="lumbini_registration_no" class="input" value="${escapeHtml(existing?.lumbini_registration_no || '')}" placeholder="LU 1 PA 1234" style="text-transform: uppercase;"></div>
+        <div><label class="label">Bagmati Registration Number</label><input name="bagmati_registration_no" class="input" value="${escapeHtml(existing?.bagmati_registration_no || '')}" placeholder="BA 02 PA 1234" style="text-transform: uppercase;"></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div><label class="label">Purchase Date <span class="req">*</span></label><input name="purchase_date" type="date" class="input" value="${escapeHtml(existing?.purchase_date || todayStr())}" required></div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1057,6 +1060,9 @@ async function openStockModal(id = null) {
     const data = Object.fromEntries(fd.entries());
     data.purchase_price = Number(data.purchase_price); data.selling_price = Number(data.selling_price); data.model_year = data.model_year ? Number(data.model_year) : null;
     data.vin_no = data.vin_no.toUpperCase();
+    data.lumbini_registration_no = String(data.lumbini_registration_no || '').toUpperCase();
+    data.bagmati_registration_no = String(data.bagmati_registration_no || '').toUpperCase();
+    data.registration_no = data.lumbini_registration_no || data.bagmati_registration_no || '';
     if (data.selling_price <= 0) { errBox.textContent = 'Selling price must be positive.'; errBox.classList.remove('hidden-view'); return; }
     const btn = $('#stockSaveBtn'); const done = showLoading(btn, 'Saving...');
     try {
@@ -1079,7 +1085,7 @@ function viewStock(id) {
     </div>
     <div class="p-5">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-        ${[['Model', s.model], ['Variant', s.variant], ['Model Year', s.model_year || '—'], ['Colour', s.colour], ['Status', `<span class="badge ${statusBadge(s.status).match(/badge-\w+/)[0]}">${s.status}</span>`], ['VIN Number', s.vin_no], ['Motor Number', s.motor_no], ['Battery Number', s.battery_no], ['Key Number', s.key_no], ['Registration Number', s.registration_no || '—'], ['Purchase Date', formatDate(s.purchase_date)], ['Purchase Invoice', s.purchase_invoice_no], ['Purchase Price', money(s.purchase_price)], ['Selling Price', money(s.selling_price)], ['Location', s.location], ['Remarks', s.remarks || '—']].map(([k, v]) => `<div><p class="text-xs text-gray-500 font-semibold uppercase mb-1">${k}</p><p class="font-medium text-gray-900">${v}</p></div>`).join('')}
+        ${[['Model', s.model], ['Variant', s.variant], ['Model Year', s.model_year || '—'], ['Colour', s.colour], ['Status', `<span class="badge ${statusBadge(s.status).match(/badge-\w+/)[0]}">${s.status}</span>`], ['VIN Number', s.vin_no], ['Motor Number', s.motor_no], ['Battery Number', s.battery_no], ['Key Number', s.key_no], ['Lumbini Registration', s.lumbini_registration_no || '—'], ['Bagmati Registration', s.bagmati_registration_no || '—'], ['Purchase Date', formatDate(s.purchase_date)], ['Purchase Invoice', s.purchase_invoice_no], ['Purchase Price', money(s.purchase_price)], ['Selling Price', money(s.selling_price)], ['Location', s.location], ['Remarks', s.remarks || '—']].map(([k, v]) => `<div><p class="text-xs text-gray-500 font-semibold uppercase mb-1">${k}</p><p class="font-medium text-gray-900">${v}</p></div>`).join('')}
       </div>
       <div class="flex gap-3 justify-end mt-5 pt-4 border-t border-gray-100"><button class="btn btn-outline" onclick="closeModal()">Close</button><button class="btn btn-primary" onclick="closeModal(); openStockModal('${s.id}')">Edit</button></div>
     </div>
@@ -1786,41 +1792,106 @@ function renderPurchase() {
       <div class="card">
         ${state.purchases.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/></svg><p>No purchases</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
-            <thead><tr><th>Purchase No</th><th>Date</th><th>Supplier</th><th>Model</th><th>Qty</th><th>Amount</th><th>Invoice</th><th>Actions</th></tr></thead>
-            <tbody>${state.purchases.map(p => `<tr><td class="font-mono text-xs">${escapeHtml(p.purchase_no)}</td><td class="text-xs">${formatDate(p.purchase_date)}</td><td class="text-xs font-semibold">${escapeHtml(p.supplier_name)}</td><td class="text-xs">${escapeHtml(p.model)}</td><td class="text-center font-bold">${p.quantity}</td><td class="font-semibold">${money(p.amount)}</td><td class="text-xs font-mono">${escapeHtml(p.invoice_no || '—')}</td><td><div class="flex gap-1"><button class="btn btn-ghost btn-sm" onclick="openStockModal();" title="Add Stock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>${canManage() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deletePurchase('${p.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
+            <thead><tr><th>Purchase No</th><th>Date</th><th>Invoice</th><th>Model</th><th>Color</th><th>VIN</th><th>Motor</th><th>Amount</th><th>Actions</th></tr></thead>
+            <tbody>${state.purchases.map(p => `<tr><td class="font-mono text-xs">${escapeHtml(p.purchase_no)}</td><td class="text-xs">${formatDate(p.purchase_date)}</td><td class="text-xs font-mono">${escapeHtml(p.invoice_no || '—')}</td><td class="text-xs">${escapeHtml(p.model)}</td><td class="text-xs">${escapeHtml(p.colour || '—')}</td><td class="text-xs font-mono">${escapeHtml(p.vin_no || '—')}</td><td class="text-xs font-mono">${escapeHtml(p.motor_no || '—')}</td><td class="font-semibold">${money(p.amount)}</td><td><div class="flex gap-1">${p.vin_no ? `<button class="btn btn-ghost btn-sm" onclick="viewStock('${state.stock.find(s=>s.vin_no===p.vin_no)?.id || ''}')" title="View Stock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>` : ''}${canManage() ? `<button class="btn btn-ghost btn-sm text-red-600" onclick="deletePurchase('${p.id}')" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>` : ''}</div></td></tr>`).join('')}</tbody>
           </table></div>`}
       </div>
     </div>
   `;
 }
 
+let purLineSeq = 0;
+function purLineRowHtml(row = {}) {
+  const n = ++purLineSeq;
+  return `<tr data-row="${n}" class="pur-line-row">
+    <td><select class="select pur-model" required>${CHETAK_MODELS.map(m => `<option ${row.model === m ? 'selected' : ''}>${m}</option>`).join('')}</select></td>
+    <td><select class="select pur-colour">${COLOURS.map(c => `<option ${row.colour === c ? 'selected' : ''}>${c}</option>`).join('')}</select></td>
+    <td><input class="input font-mono pur-vin" style="text-transform:uppercase;" value="${escapeHtml(row.vin_no || '')}" placeholder="VIN" required></td>
+    <td><input class="input font-mono pur-motor" style="text-transform:uppercase;" value="${escapeHtml(row.motor_no || '')}" placeholder="Motor"></td>
+    <td><input class="input font-mono pur-battery" style="text-transform:uppercase;" value="${escapeHtml(row.battery_no || '')}" placeholder="Battery"></td>
+    <td><input class="input pur-lumbini" style="text-transform:uppercase;" value="${escapeHtml(row.lumbini_registration_no || '')}" placeholder="Lumbini Reg"></td>
+    <td><input class="input pur-bagmati" style="text-transform:uppercase;" value="${escapeHtml(row.bagmati_registration_no || '')}" placeholder="Bagmati Reg"></td>
+    <td><input type="number" min="0" class="input pur-amount" value="${row.amount ?? 245000}" required></td>
+    <td><button type="button" class="btn btn-ghost btn-sm text-red-600" onclick="this.closest('tr').remove(); recalcPurTotal();" title="Remove">✕</button></td>
+  </tr>`;
+}
+function addPurLine() { $('#purLinesBody').insertAdjacentHTML('beforeend', purLineRowHtml()); recalcPurTotal(); }
+function recalcPurTotal() {
+  const amounts = [...document.querySelectorAll('.pur-amount')].map(i => Number(i.value) || 0);
+  const total = amounts.reduce((a, b) => a + b, 0);
+  const el = $('#purTotalAmount'); if (el) el.textContent = money(total);
+}
 async function openPurchaseModal() {
-  const purNo = await generateNumber('chetak_purchases', 'purchase_no', 'CTS-PUR');
+  purLineSeq = 0;
   openModal(`
-    <div class="p-5 border-b border-gray-100 flex items-center justify-between">
-      <div><h3 class="font-display font-bold text-lg text-gray-900">New Purchase</h3><p class="text-xs text-gray-500">Record stock inward</p></div>
+    <div class="p-5 border-b border-gray-100 sticky top-0 bg-white z-10 rounded-t-2xl flex items-center justify-between">
+      <div><h3 class="font-display font-bold text-lg text-gray-900">New Purchase</h3><p class="text-xs text-gray-500">Record stock inward — each vehicle added below is auto-added to Stock</p></div>
       <button class="btn btn-ghost btn-icon" onclick="closeModal()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <form id="purForm" class="p-5 space-y-4">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label class="label">Purchase Number</label><input class="input bg-gray-50" value="${purNo}" readonly name="purchase_no"></div><div><label class="label">Date <span class="req">*</span></label><input type="date" name="purchase_date" class="input" value="${todayStr()}" required></div></div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label class="label">Supplier Name <span class="req">*</span></label><input name="supplier_name" class="input" value="Bajaj Auto Ltd." required></div><div><label class="label">Model <span class="req">*</span></label><select name="model" class="select" required>${CHETAK_MODELS.map(m => `<option>${m}</option>`).join('')}</select></div></div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div><label class="label">Quantity <span class="req">*</span></label><input name="quantity" type="number" min="1" class="input" value="1" required id="purQty"></div><div><label class="label">Amount (Rs.) <span class="req">*</span></label><input name="amount" type="number" min="0" class="input" value="245000" required id="purAmt"></div><div><label class="label">Invoice No.</label><input name="invoice_no" class="input" placeholder="BAJ-INV-..."></div></div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div><label class="label">Date of Invoice <span class="req">*</span></label><input type="date" name="purchase_date" class="input" value="${todayStr()}" required></div>
+        <div><label class="label">Number of Invoice <span class="req">*</span></label><input name="invoice_no" class="input" placeholder="BAJ-INV-..." required></div>
+        <div><label class="label">Supplier Name</label><input name="supplier_name" class="input" value="Bajaj Auto Ltd."></div>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-2"><label class="label !mb-0">Vehicles in this Invoice</label><button type="button" class="btn btn-outline btn-sm" onclick="addPurLine()">+ Add Vehicle</button></div>
+        <div class="table-wrap"><table class="table text-xs">
+          <thead><tr><th>Model</th><th>Color</th><th>VIN Number</th><th>Motor Number</th><th>Battery Number</th><th>Lumbini Reg.</th><th>Bagmati Reg.</th><th>Amount (Rs.)</th><th></th></tr></thead>
+          <tbody id="purLinesBody">${purLineRowHtml()}</tbody>
+        </table></div>
+        <div class="text-right text-sm font-semibold text-gray-700 mt-2">Total Amount: <span id="purTotalAmount">${money(245000)}</span></div>
+      </div>
       <div><label class="label">Remarks</label><textarea name="remarks" class="textarea" rows="2"></textarea></div>
-      <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800"><strong>Tip:</strong> After creating a purchase, go to Stock module to add individual VIN records for each vehicle received.</div>
       <div id="purFormError" class="hidden-view text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2.5"></div>
-      <div class="flex gap-3 justify-end pt-3 border-t border-gray-100"><button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary" id="purSaveBtn">Save Purchase</button></div>
+      <div class="flex gap-3 justify-end pt-3 border-t border-gray-100"><button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary" id="purSaveBtn">Save Purchase & Add to Stock</button></div>
     </form>
   `);
+  $('#purLinesBody').addEventListener('input', e => { if (e.target.classList.contains('pur-amount')) recalcPurTotal(); });
   $('#purForm').addEventListener('submit', async (e) => {
     e.preventDefault(); const errBox = $('#purFormError'); errBox.classList.add('hidden-view');
-    const data = Object.fromEntries(new FormData(e.target).entries());
-    data.quantity = Number(data.quantity); data.amount = Number(data.amount);
-    if (data.quantity <= 0) { errBox.textContent = 'Quantity must be at least 1.'; errBox.classList.remove('hidden-view'); return; }
+    const fd = new FormData(e.target);
+    const header = Object.fromEntries(fd.entries());
+    const rows = [...document.querySelectorAll('#purLinesBody .pur-line-row')].map(tr => ({
+      model: tr.querySelector('.pur-model').value,
+      colour: tr.querySelector('.pur-colour').value,
+      vin_no: tr.querySelector('.pur-vin').value.trim().toUpperCase(),
+      motor_no: tr.querySelector('.pur-motor').value.trim().toUpperCase(),
+      battery_no: tr.querySelector('.pur-battery').value.trim().toUpperCase(),
+      lumbini_registration_no: tr.querySelector('.pur-lumbini').value.trim().toUpperCase(),
+      bagmati_registration_no: tr.querySelector('.pur-bagmati').value.trim().toUpperCase(),
+      amount: Number(tr.querySelector('.pur-amount').value) || 0
+    }));
+    if (!rows.length) { errBox.textContent = 'Add at least one vehicle.'; errBox.classList.remove('hidden-view'); return; }
+    const missingVin = rows.find(r => !r.vin_no || !r.model);
+    if (missingVin) { errBox.textContent = 'Every vehicle needs a Model and VIN number.'; errBox.classList.remove('hidden-view'); return; }
+    const dupInBatch = rows.some((r, i) => rows.findIndex(x => x.vin_no === r.vin_no) !== i);
+    if (dupInBatch) { errBox.textContent = 'Duplicate VIN entered twice in this invoice.'; errBox.classList.remove('hidden-view'); return; }
+    const dupInStock = rows.find(r => state.stock.some(s => s.vin_no === r.vin_no));
+    if (dupInStock) { errBox.textContent = `VIN ${dupInStock.vin_no} already exists in Stock.`; errBox.classList.remove('hidden-view'); return; }
     const btn = $('#purSaveBtn'); const done = showLoading(btn, 'Saving...');
     try {
-      await db.insert('chetak_purchases', { ...data });
-      showToast('Purchase recorded. Now add individual stock for each vehicle.', 'success');
-      closeModal(); await refreshData(); setTimeout(() => { navigateTo('stock'); openStockModal(); }, 300);
+      for (const r of rows) {
+        const purNo = await generateNumber('chetak_purchases', 'purchase_no', 'CTS-PUR');
+        const regCombined = r.lumbini_registration_no || r.bagmati_registration_no || '';
+        await db.insert('chetak_purchases', {
+          purchase_no: purNo, purchase_date: header.purchase_date, invoice_no: header.invoice_no,
+          supplier_name: header.supplier_name || 'Bajaj Auto Ltd.', model: r.model, colour: r.colour,
+          vin_no: r.vin_no, motor_no: r.motor_no, battery_no: r.battery_no,
+          lumbini_registration_no: r.lumbini_registration_no, bagmati_registration_no: r.bagmati_registration_no,
+          quantity: 1, amount: r.amount, remarks: header.remarks || ''
+        });
+        await db.insert('chetak_stock', {
+          model: r.model, variant: 'Standard', model_year: new Date().getFullYear(), colour: r.colour,
+          vin_no: r.vin_no, motor_no: r.motor_no, battery_no: r.battery_no, key_no: '',
+          registration_no: regCombined, lumbini_registration_no: r.lumbini_registration_no, bagmati_registration_no: r.bagmati_registration_no,
+          purchase_date: header.purchase_date, purchase_invoice_no: header.invoice_no,
+          purchase_price: r.amount, selling_price: r.amount, location: 'Showroom - Kathmandu',
+          status: 'available', remarks: header.remarks || ''
+        });
+      }
+      showToast(`Purchase recorded — ${rows.length} vehicle(s) added to Stock automatically.`, 'success');
+      closeModal(); await refreshData(); navigateTo('stock');
     } catch (err) { errBox.textContent = err.message; errBox.classList.remove('hidden-view'); } finally { done(); }
   });
 }
@@ -1839,8 +1910,9 @@ async function deletePurchase(id) {
 const IMPORT_EXPORT_CONFIG = {
   stock: {
     table: 'chetak_stock', stateKey: 'stock', filename: 'Chetak_Stock',
-    fields: ['model','variant','model_year','colour','vin_no','motor_no','battery_no','key_no','registration_no','purchase_date','purchase_invoice_no','purchase_price','selling_price','location','status','remarks'],
-    aliases: {model:['model','bike model','vehicle model'],variant:['variant','type'],model_year:['model year','year','mfg year'],colour:['colour','color'],vin_no:['vin','vin no','vin number','frame no','frame number'],motor_no:['motor','motor no','motor number','engine no','engine number'],battery_no:['battery','battery no','battery number'],key_no:['key','key no','key number'],registration_no:['registration','registration no','registration number','reg no','number plate'],purchase_date:['purchase date','date','inward date'],purchase_invoice_no:['purchase invoice','invoice no','invoice number','purchase invoice no'],purchase_price:['purchase price','cost','cost price','buying price'],selling_price:['selling price','sale price','mrp','price'],location:['location','warehouse','branch'],status:['status'],remarks:['remarks','remark','note','notes']}
+    fields: ['model','variant','model_year','colour','vin_no','motor_no','battery_no','key_no','lumbini_registration_no','bagmati_registration_no','purchase_date','purchase_invoice_no','purchase_price','selling_price','location','status','remarks'],
+    headers: {model:'Model',variant:'Variant',model_year:'Model Year',colour:'Color',vin_no:'Vin number',motor_no:'Motor number',battery_no:'Battery number',key_no:'Key number',lumbini_registration_no:'Lumbini Registration number',bagmati_registration_no:'Bagmati Registration number',purchase_date:'Date of invoice',purchase_invoice_no:'Number of invoice',purchase_price:'Purchase Price',selling_price:'Selling Price',location:'Location',status:'Status',remarks:'Remarks'},
+    aliases: {model:['model','bike model','vehicle model'],variant:['variant','type'],model_year:['model year','year','mfg year'],colour:['colour','color'],vin_no:['vin','vin no','vin number','frame no','frame number'],motor_no:['motor','motor no','motor number','engine no','engine number'],battery_no:['battery','battery no','battery number'],key_no:['key','key no','key number'],lumbini_registration_no:['lumbini registration number','lumbini registration','lumbini reg','lumbini reg no'],bagmati_registration_no:['bagmati registration number','bagmati registration','bagmati reg','bagmati reg no'],purchase_date:['date of invoice','purchase date','date','inward date'],purchase_invoice_no:['number of invoice','purchase invoice','invoice no','invoice number','purchase invoice no'],purchase_price:['purchase price','cost','cost price','buying price'],selling_price:['selling price','sale price','mrp','price'],location:['location','warehouse','branch'],status:['status'],remarks:['remarks','remark','note','notes']}
   },
   sales: {
     table: 'chetak_sales', stateKey: 'sales', filename: 'Chetak_Sales',
@@ -1849,8 +1921,9 @@ const IMPORT_EXPORT_CONFIG = {
   },
   purchases: {
     table: 'chetak_purchases', stateKey: 'purchases', filename: 'Chetak_Purchases',
-    fields: ['purchase_no','purchase_date','supplier_name','model','quantity','amount','invoice_no','remarks'],
-    aliases: {purchase_no:['purchase no','purchase number','grn','grn no'],purchase_date:['purchase date','date','inward date'],supplier_name:['supplier','supplier name','vendor','vendor name'],model:['model','bike model'],quantity:['qty','quantity','units'],amount:['amount','total amount','purchase amount','cost'],invoice_no:['invoice','invoice no','invoice number','bill no'],remarks:['remarks','remark','note','notes']}
+    fields: ['purchase_date','invoice_no','model','colour','vin_no','motor_no','lumbini_registration_no','bagmati_registration_no','amount','battery_no'],
+    headers: {purchase_date:'Date of invoice',invoice_no:'Number of invoice',model:'Model',colour:'Color',vin_no:'Vin number',motor_no:'Motor number',lumbini_registration_no:'Lumbini Registration number',bagmati_registration_no:'Bagmati Registration number',amount:'Amount',battery_no:'Battery number'},
+    aliases: {purchase_date:['date of invoice','purchase date','date','inward date'],invoice_no:['number of invoice','invoice no','invoice number','purchase invoice no','bill no'],model:['model','bike model','vehicle model'],colour:['color','colour'],vin_no:['vin number','vin','vin no','frame no','frame number'],motor_no:['motor number','motor','motor no','engine no','engine number'],lumbini_registration_no:['lumbini registration number','lumbini registration','lumbini reg','lumbini reg no'],bagmati_registration_no:['bagmati registration number','bagmati registration','bagmati reg','bagmati reg no'],amount:['amount','price','purchase amount','total amount','cost'],battery_no:['battery number','battery','battery no']}
   }
 };
 function normHeader(v){ return String(v??'').toLowerCase().replace(/[_\-\/\\().]/g,' ').replace(/\s+/g,' ').trim(); }
@@ -1858,14 +1931,14 @@ function num(v){ const n=Number(String(v??'').replace(/[^0-9.-]/g,'')); return N
 function cleanDate(v){ if(v==null||v==='') return null; if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10); if(typeof v==='number' && window.XLSX){ const d=XLSX.SSF.parse_date_code(v); if(d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`; } const dt=new Date(v); return isNaN(dt)?String(v).slice(0,10):dt.toISOString().slice(0,10); }
 function valueFromRow(row, aliases){ const map={}; Object.keys(row).forEach(k=>map[normHeader(k)]=row[k]); for(const a of aliases){ if(map[normHeader(a)]!==undefined && map[normHeader(a)]!=='') return map[normHeader(a)]; } return ''; }
 function mapImportRow(type,row){ const cfg=IMPORT_EXPORT_CONFIG[type], out={}; cfg.fields.forEach(f=>out[f]=valueFromRow(row,cfg.aliases[f]||[f]));
-  if(type==='stock'){ ['purchase_price','selling_price'].forEach(f=>out[f]=num(out[f])); out.model_year = out.model_year ? Number(out.model_year) : null; out.purchase_date=cleanDate(out.purchase_date)||todayStr(); out.status=String(out.status||'available').toLowerCase(); if(!STOCK_STATUSES.includes(out.status)) out.status='available'; out.vin_no=String(out.vin_no||'').trim().toUpperCase(); out.motor_no=String(out.motor_no||'').trim().toUpperCase(); out.battery_no=String(out.battery_no||'').trim().toUpperCase(); out.key_no=String(out.key_no||'').trim().toUpperCase(); out.registration_no=String(out.registration_no||'').trim().toUpperCase(); }
+  if(type==='stock'){ ['purchase_price','selling_price'].forEach(f=>out[f]=num(out[f])); out.model_year = out.model_year ? Number(out.model_year) : null; out.purchase_date=cleanDate(out.purchase_date)||todayStr(); out.status=String(out.status||'available').toLowerCase(); if(!STOCK_STATUSES.includes(out.status)) out.status='available'; out.vin_no=String(out.vin_no||'').trim().toUpperCase(); out.motor_no=String(out.motor_no||'').trim().toUpperCase(); out.battery_no=String(out.battery_no||'').trim().toUpperCase(); out.key_no=String(out.key_no||'').trim().toUpperCase(); out.lumbini_registration_no=String(out.lumbini_registration_no||'').trim().toUpperCase(); out.bagmati_registration_no=String(out.bagmati_registration_no||'').trim().toUpperCase(); out.registration_no=out.lumbini_registration_no||out.bagmati_registration_no||''; }
   if(type==='sales'){ ['selling_price','discount','net_amount','down_payment','finance_amount'].forEach(f=>out[f]=num(out[f])); out.sale_date=cleanDate(out.sale_date)||todayStr(); out.status=String(out.status||'confirmed').toLowerCase(); if(!['confirmed','pending'].includes(out.status)) out.status='confirmed'; out.vin_no=String(out.vin_no||'').trim().toUpperCase(); if(!out.net_amount) out.net_amount=Math.max(0,out.selling_price-out.discount); }
-  if(type==='purchases'){ out.quantity=Math.max(1,num(out.quantity)||1); out.amount=num(out.amount); out.purchase_date=cleanDate(out.purchase_date)||todayStr(); }
+  if(type==='purchases'){ out.amount=num(out.amount); out.purchase_date=cleanDate(out.purchase_date)||todayStr(); out.vin_no=String(out.vin_no||'').trim().toUpperCase(); out.motor_no=String(out.motor_no||'').trim().toUpperCase(); out.battery_no=String(out.battery_no||'').trim().toUpperCase(); out.lumbini_registration_no=String(out.lumbini_registration_no||'').trim().toUpperCase(); out.bagmati_registration_no=String(out.bagmati_registration_no||'').trim().toUpperCase(); out.quantity=1; }
   return out;
 }
-function exportModule(type){ const cfg=IMPORT_EXPORT_CONFIG[type]; const rows=(state[cfg.stateKey]||[]).map(x=>{ const r={}; cfg.fields.forEach(f=>r[f]=x[f]??''); if(type==='sales'){ const c=state.customers.find(z=>z.id===x.customer_id); r.customer_name=c?.customer_name||x.customer_name||''; r.phone=c?.phone||x.phone||''; r.address=c?.address||x.address||''; } return r; });
+function exportModule(type){ const cfg=IMPORT_EXPORT_CONFIG[type]; const headers=cfg.headers||{}; const rows=(state[cfg.stateKey]||[]).map(x=>{ const r={}; cfg.fields.forEach(f=>r[headers[f]||f]=x[f]??''); if(type==='sales'){ const c=state.customers.find(z=>z.id===x.customer_id); r[headers.customer_name||'customer_name']=c?.customer_name||x.customer_name||''; r[headers.phone||'phone']=c?.phone||x.phone||''; r[headers.address||'address']=c?.address||x.address||''; } return r; });
   if(!window.XLSX){ showToast('Export library is loading. Please try again.','warning'); return; }
-  const ws=XLSX.utils.json_to_sheet(rows.length?rows:[Object.fromEntries(cfg.fields.map(f=>[f,'']))]); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,type.toUpperCase()); XLSX.writeFile(wb,`${cfg.filename}_${todayStr()}.xlsx`); showToast(`${cfg.filename} exported successfully`,'success');
+  const ws=XLSX.utils.json_to_sheet(rows.length?rows:[Object.fromEntries(cfg.fields.map(f=>[headers[f]||f,'']))]); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,type.toUpperCase()); XLSX.writeFile(wb,`${cfg.filename}_${todayStr()}.xlsx`); showToast(`${cfg.filename} exported successfully`,'success');
 }
 let activeImportType=null;
 function triggerImport(type){ activeImportType=type; const el=$('#universalImportFile'); el.value=''; el.click(); }
@@ -1877,9 +1950,19 @@ async function importRows(type, rows){ const cfg=IMPORT_EXPORT_CONFIG[type]; if(
       if(existing){ await db.update('chetak_stock',existing.id,{...d,updated_at:new Date().toISOString()}); } else { await db.insert('chetak_stock',{...d}); }
     }
     if(type==='purchases'){
-      if(!d.purchase_no) d.purchase_no=await generateNumber('chetak_purchases','purchase_no','CTS-PUR');
-      if(!d.supplier_name) d.supplier_name='Bajaj Auto Ltd.'; if(!d.model){ skip++; errors.push(`Row ${i+2}: Model is required`); continue; }
-      const exists=state.purchases.find(p=>p.purchase_no===d.purchase_no); if(exists) await db.update('chetak_purchases',exists.id,{...d}); else await db.insert('chetak_purchases',{...d});
+      if(!d.model || !d.vin_no){ skip++; errors.push(`Row ${i+2}: Model and VIN number are required`); continue; }
+      const existingStock=state.stock.find(s=>String(s.vin_no||'').toUpperCase()===d.vin_no);
+      const existingPurchase=state.purchases.find(p=>String(p.vin_no||'').toUpperCase()===d.vin_no);
+      const regCombined=d.lumbini_registration_no||d.bagmati_registration_no||'';
+      if(existingPurchase){
+        await db.update('chetak_purchases',existingPurchase.id,{...d,supplier_name:existingPurchase.supplier_name||'Bajaj Auto Ltd.'});
+      } else {
+        const purNo=await generateNumber('chetak_purchases','purchase_no','CTS-PUR');
+        await db.insert('chetak_purchases',{...d,purchase_no:purNo,supplier_name:'Bajaj Auto Ltd.',remarks:''});
+      }
+      const stockPayload={ model:d.model, colour:d.colour, vin_no:d.vin_no, motor_no:d.motor_no, battery_no:d.battery_no, lumbini_registration_no:d.lumbini_registration_no, bagmati_registration_no:d.bagmati_registration_no, registration_no:regCombined, purchase_date:d.purchase_date, purchase_invoice_no:d.invoice_no, purchase_price:d.amount };
+      if(existingStock){ await db.update('chetak_stock',existingStock.id,{...stockPayload,updated_at:new Date().toISOString()}); }
+      else { await db.insert('chetak_stock',{ ...stockPayload, variant:'Standard', model_year:new Date().getFullYear(), key_no:'', selling_price:d.amount, location:'Showroom - Kathmandu', status:'available', remarks:'' }); }
     }
     if(type==='sales'){
       if(!d.vin_no || !d.model){ skip++; errors.push(`Row ${i+2}: VIN and Model are required`); continue; }
