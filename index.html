@@ -1929,8 +1929,12 @@ const IMPORT_EXPORT_CONFIG = {
 function normHeader(v){ return String(v??'').toLowerCase().replace(/[_\-\/\\().]/g,' ').replace(/\s+/g,' ').trim(); }
 function num(v){ const n=Number(String(v??'').replace(/[^0-9.-]/g,'')); return Number.isFinite(n)?n:0; }
 function cleanDate(v){ if(v==null||v==='') return null; if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10); if(typeof v==='number' && window.XLSX){ const d=XLSX.SSF.parse_date_code(v); if(d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`; } const dt=new Date(v); return isNaN(dt)?String(v).slice(0,10):dt.toISOString().slice(0,10); }
-function valueFromRow(row, aliases){ const map={}; Object.keys(row).forEach(k=>map[normHeader(k)]=row[k]); for(const a of aliases){ if(map[normHeader(a)]!==undefined && map[normHeader(a)]!=='') return map[normHeader(a)]; } return ''; }
-function mapImportRow(type,row){ const cfg=IMPORT_EXPORT_CONFIG[type], out={}; cfg.fields.forEach(f=>out[f]=valueFromRow(row,cfg.aliases[f]||[f]));
+function valueFromRow(row, aliases, mappedHeader){
+  const map={}; Object.keys(row).forEach(k=>map[normHeader(k)]=row[k]);
+  if(mappedHeader){ if(row[mappedHeader]!==undefined && row[mappedHeader]!=='') return row[mappedHeader]; const nv=map[normHeader(mappedHeader)]; if(nv!==undefined && nv!=='') return nv; }
+  for(const a of aliases){ if(map[normHeader(a)]!==undefined && map[normHeader(a)]!=='') return map[normHeader(a)]; } return '';
+}
+function mapImportRow(type,row,mapping){ const cfg=IMPORT_EXPORT_CONFIG[type], out={}; cfg.fields.forEach(f=>out[f]=valueFromRow(row,cfg.aliases[f]||[f],mapping&&mapping[f]));
   if(type==='stock'){ ['purchase_price','selling_price'].forEach(f=>out[f]=num(out[f])); out.model_year = out.model_year ? Number(out.model_year) : null; out.purchase_date=cleanDate(out.purchase_date)||todayStr(); out.status=String(out.status||'available').toLowerCase(); if(!STOCK_STATUSES.includes(out.status)) out.status='available'; out.vin_no=String(out.vin_no||'').trim().toUpperCase(); out.motor_no=String(out.motor_no||'').trim().toUpperCase(); out.battery_no=String(out.battery_no||'').trim().toUpperCase(); out.key_no=String(out.key_no||'').trim().toUpperCase(); out.lumbini_registration_no=String(out.lumbini_registration_no||'').trim().toUpperCase(); out.bagmati_registration_no=String(out.bagmati_registration_no||'').trim().toUpperCase(); out.registration_no=out.lumbini_registration_no||out.bagmati_registration_no||''; }
   if(type==='sales'){ ['selling_price','discount','net_amount','down_payment','finance_amount'].forEach(f=>out[f]=num(out[f])); out.sale_date=cleanDate(out.sale_date)||todayStr(); out.status=String(out.status||'confirmed').toLowerCase(); if(!['confirmed','pending'].includes(out.status)) out.status='confirmed'; out.vin_no=String(out.vin_no||'').trim().toUpperCase(); if(!out.net_amount) out.net_amount=Math.max(0,out.selling_price-out.discount); }
   if(type==='purchases'){ out.amount=num(out.amount); out.purchase_date=cleanDate(out.purchase_date)||todayStr(); out.vin_no=String(out.vin_no||'').trim().toUpperCase(); out.motor_no=String(out.motor_no||'').trim().toUpperCase(); out.battery_no=String(out.battery_no||'').trim().toUpperCase(); out.lumbini_registration_no=String(out.lumbini_registration_no||'').trim().toUpperCase(); out.bagmati_registration_no=String(out.bagmati_registration_no||'').trim().toUpperCase(); out.quantity=1; }
@@ -1942,8 +1946,72 @@ function exportModule(type){ const cfg=IMPORT_EXPORT_CONFIG[type]; const headers
 }
 let activeImportType=null;
 function triggerImport(type){ activeImportType=type; const el=$('#universalImportFile'); el.value=''; el.click(); }
-async function importRows(type, rows){ const cfg=IMPORT_EXPORT_CONFIG[type]; if(!rows.length) throw new Error('No data rows found in the selected file.'); let ok=0,skip=0,errors=[];
-  for(let i=0;i<rows.length;i++){ const d=mapImportRow(type,rows[i]); try {
+// Fuzzy column matching so ANY excel/csv column layout can be imported —
+// scores each file-header against a field's known aliases/label using exact match,
+// substring containment, and word-overlap, then auto-picks the best guess.
+function tokenSet(s){ return new Set(normHeader(s).split(' ').filter(Boolean)); }
+function headerScore(header, aliasPhrases){
+  const h = normHeader(header); let best = 0;
+  for (const a of aliasPhrases) {
+    const an = normHeader(a);
+    if (!an) continue;
+    if (h === an) return 100;
+    if (h.includes(an) || an.includes(h)) best = Math.max(best, 85);
+    const ht = tokenSet(h), at = tokenSet(an);
+    const inter = [...ht].filter(x => at.has(x)).length;
+    const union = new Set([...ht, ...at]).size;
+    const jac = union ? inter / union : 0;
+    best = Math.max(best, Math.round(jac * 70));
+  }
+  return best;
+}
+function autoGuessMapping(cfg, headers) {
+  const mapping = {}; const used = new Set();
+  cfg.fields.forEach(f => {
+    const aliasPhrases = [...(cfg.aliases[f] || []), cfg.headers?.[f] || '', f.replace(/_/g, ' ')];
+    let bestHeader = '', bestScore = 0;
+    headers.forEach(h => {
+      if (used.has(h)) return;
+      const s = headerScore(h, aliasPhrases);
+      if (s > bestScore) { bestScore = s; bestHeader = h; }
+    });
+    if (bestScore >= 40) { mapping[f] = bestHeader; used.add(bestHeader); } else mapping[f] = '';
+  });
+  return mapping;
+}
+function openImportMappingModal(type, headers, rows) {
+  const cfg = IMPORT_EXPORT_CONFIG[type];
+  const guess = autoGuessMapping(cfg, headers);
+  const label = f => cfg.headers?.[f] || f.replace(/_/g, ' ');
+  const rowsHtml = cfg.fields.map(f => `
+    <div class="grid grid-cols-2 gap-3 items-center py-1">
+      <label class="text-xs font-semibold text-gray-700 capitalize">${escapeHtml(label(f))}</label>
+      <select class="select map-select" data-field="${f}">
+        <option value="">— Skip —</option>
+        ${headers.map(h => `<option value="${escapeHtml(h)}" ${guess[f] === h ? 'selected' : ''}>${escapeHtml(h)}</option>`).join('')}
+      </select>
+    </div>`).join('');
+  openModal(`
+    <div class="p-5 border-b border-gray-100 sticky top-0 bg-white z-10 rounded-t-2xl flex items-center justify-between">
+      <div><h3 class="font-display font-bold text-lg text-gray-900">Map Columns — ${type.toUpperCase()}</h3><p class="text-xs text-gray-500">${rows.length} row(s) detected. Your file's columns are auto-matched below — adjust if needed, works with any column names/order.</p></div>
+      <button class="btn btn-ghost btn-icon" onclick="closeModal()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="p-5 space-y-1 max-h-[55vh] overflow-y-auto" id="importMapBody">${rowsHtml}</div>
+    <div class="flex gap-3 justify-end p-5 border-t border-gray-100">
+      <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" id="importMapConfirmBtn">Import ${rows.length} Row(s)</button>
+    </div>
+  `);
+  $('#importMapConfirmBtn').addEventListener('click', async () => {
+    const mapping = {}; document.querySelectorAll('.map-select').forEach(sel => { mapping[sel.dataset.field] = sel.value; });
+    const btn = $('#importMapConfirmBtn'); const done = showLoading(btn, 'Importing...');
+    try { await importRows(type, rows, mapping); closeModal(); }
+    catch (e) { showToast('Import failed: ' + (e.message || e), 'error'); }
+    finally { done(); }
+  });
+}
+async function importRows(type, rows, mapping) { const cfg = IMPORT_EXPORT_CONFIG[type]; if (!rows.length) throw new Error('No data rows found in the selected file.'); let ok = 0, skip = 0, errors = [];
+  for (let i = 0; i < rows.length; i++) { const d = mapImportRow(type, rows[i], mapping); try {
     if(type==='stock'){
       if(!d.vin_no || !d.model){ skip++; errors.push(`Row ${i+2}: Model and VIN are required`); continue; }
       const existing=state.stock.find(s=>String(s.vin_no||'').toUpperCase()===d.vin_no);
@@ -1980,7 +2048,14 @@ async function importRows(type, rows){ const cfg=IMPORT_EXPORT_CONFIG[type]; if(
   await refreshData(); showToast(`${ok} ${type} record(s) imported${skip?`, ${skip} skipped`:''}`,skip?'warning':'success'); if(errors.length) console.warn('Import details:',errors);
 }
 $('#universalImportFile')?.addEventListener('change', async e=>{ const file=e.target.files?.[0], type=activeImportType; if(!file||!type) return; if(!window.XLSX){ showToast('Excel import library failed to load. Check internet and reload.','error'); return; }
-  try { showToast(`Reading ${file.name}...`,'info'); const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true}); const sheet=wb.Sheets[wb.SheetNames[0]]; const rows=XLSX.utils.sheet_to_json(sheet,{defval:'',raw:false}); if(!confirm(`Import ${rows.length} row(s) into ${type}? Flexible column names are supported.`)) return; await importRows(type,rows); }
+  try {
+    showToast(`Reading ${file.name}...`,'info');
+    const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true}); const sheet=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(sheet,{defval:'',raw:false});
+    if(!rows.length){ showToast('No data rows found in the file.','warning'); return; }
+    const headers=Object.keys(rows[0]);
+    openImportMappingModal(type, headers, rows);
+  }
   catch(err){ console.error(err); showToast('Import failed: '+(err.message||err),'error'); } finally { e.target.value=''; activeImportType=null; }
 });
 // Press Enter to jump to the next editable field. Textareas keep normal Enter behavior.
