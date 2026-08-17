@@ -162,6 +162,7 @@
 </style>
 </head>
 <body>
+<input type="file" id="universalImportFile" accept=".xlsx,.xls,.csv,.txt" style="display:none">
 
 <!-- ================= LOGIN SCREEN ================= -->
 <div id="loginScreen" class="login-bg flex items-center justify-center p-4">
@@ -2177,17 +2178,27 @@ async function importRows(type, rows, mapping) { const cfg = IMPORT_EXPORT_CONFI
   }
   await refreshData(); showToast(`${ok} ${type} record(s) imported${skip?`, ${skip} skipped`:''}`,skip?'warning':'success'); if(errors.length) console.warn('Import details:',errors);
 }
-$('#universalImportFile')?.addEventListener('change', async e=>{ const file=e.target.files?.[0], type=activeImportType; if(!file||!type) return; if(!window.XLSX){ showToast('Excel import library failed to load. Check internet and reload.','error'); return; }
-  try {
-    showToast(`Reading ${file.name}...`,'info');
-    const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true}); const sheet=wb.Sheets[wb.SheetNames[0]];
-    const rows=XLSX.utils.sheet_to_json(sheet,{defval:'',raw:false});
-    if(!rows.length){ showToast('No data rows found in the file.','warning'); return; }
-    const headers=Object.keys(rows[0]);
-    openImportMappingModal(type, headers, rows);
-  }
-  catch(err){ console.error(err); showToast('Import failed: '+(err.message||err),'error'); } finally { e.target.value=''; activeImportType=null; }
-});
+function setupUniversalImportListener() {
+  const el = $('#universalImportFile');
+  if (!el || el.dataset.listenerAttached === '1') return;
+  el.dataset.listenerAttached = '1';
+  el.addEventListener('change', async e => {
+    const file = e.target.files?.[0], type = activeImportType;
+    if (!file || !type) return;
+    if (!window.XLSX) { showToast('Excel import library failed to load. Check internet and reload.', 'error'); return; }
+    try {
+      showToast(`Reading ${file.name}...`, 'info');
+      const buf = await file.arrayBuffer(); const wb = XLSX.read(buf, { type: 'array', cellDates: true }); const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+      if (!rows.length) { showToast('No data rows found in the file.', 'warning'); return; }
+      const headers = Object.keys(rows[0]);
+      openImportMappingModal(type, headers, rows);
+    }
+    catch (err) { console.error(err); showToast('Import failed: ' + (err.message || err), 'error'); } finally { e.target.value = ''; activeImportType = null; }
+  });
+}
+// Attach immediately if the input already exists in the DOM at this point, and again on DOMContentLoaded as a safety net.
+setupUniversalImportListener();
 // Press Enter to jump to the next editable field. Textareas keep normal Enter behavior.
 document.addEventListener('keydown',e=>{ if(e.key!=='Enter' || e.shiftKey || e.target.tagName==='TEXTAREA' || e.target.type==='submit' || e.target.type==='button') return; const form=e.target.closest('form'); if(!form) return; const fields=[...form.querySelectorAll('input:not([type="hidden"]):not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled])')].filter(x=>x.offsetParent!==null); const i=fields.indexOf(e.target); if(i>=0 && i<fields.length-1){ e.preventDefault(); fields[i+1].focus(); if(fields[i+1].select && ['text','number','date'].includes(fields[i+1].type)) fields[i+1].select(); } });
 
@@ -2432,6 +2443,9 @@ function setupRealtime() {
    EVENT LISTENERS
    ============================================================ */
 document.addEventListener('DOMContentLoaded', async () => {
+  // Safety net: make sure the import file input's change listener is attached now that the full DOM (including the input element) exists.
+  setupUniversalImportListener();
+
   // Brand logo
   $('#loginLogoImg').src = COMPANY_LOGO;
   $('#sidebarLogoImg').src = COMPANY_LOGO;
@@ -2471,8 +2485,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setConnectionStatus('online');
 });
 </script>
-<input type="file" id="universalImportFile" accept=".xlsx,.xls,.csv,.txt" style="display:none">
-
 
 </body>
 </html>
