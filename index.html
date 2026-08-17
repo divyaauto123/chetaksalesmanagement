@@ -591,6 +591,23 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 const monthStr = (d) => { const dt = d ? new Date(d) : new Date(); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`; };
 const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+// Debounced search: waits for a short pause in typing before re-rendering (instead of on
+// every keystroke), then restores focus + cursor position on the freshly rendered input so
+// typing feels fast and the field never loses focus mid-word.
+const __searchDebounceTimers = {};
+function liveSearch(el, applyFn, delay = 200) {
+  const id = el.id;
+  const caret = el.selectionStart;
+  clearTimeout(__searchDebounceTimers[id]);
+  __searchDebounceTimers[id] = setTimeout(() => {
+    applyFn();
+    requestAnimationFrame(() => {
+      const ne = document.getElementById(id);
+      if (ne) { ne.focus(); try { ne.setSelectionRange(caret, caret); } catch (e) {} }
+    });
+  }, delay);
+}
+
 function showToast(message, type = 'success', duration = 3500) {
   const container = $('#toastContainer');
   const toast = document.createElement('div');
@@ -957,10 +974,14 @@ function renderStock() {
   const statusFilter = state.filters.stockStatus || '';
   const modelFilter = state.filters.stockModel || '';
   const branchFilter = state.filters.stockBranch || '';
+  const norm = v => String(v || '').trim().toLowerCase();
+  // Build the Model filter list from models actually present in stock (union with CHETAK_MODELS)
+  // so imported records with slightly different model text still show up when filtered.
+  const stockModelOptions = [...new Set([...CHETAK_MODELS, ...state.stock.map(s => String(s.model || '').trim()).filter(Boolean)])];
   let filtered = state.stock.filter(s => {
     if (search) { const t = `${s.vin_no} ${s.model} ${s.colour} ${s.motor_no} ${s.battery_no} ${s.registration_no}`.toLowerCase(); if (!t.includes(search)) return false; }
     if (statusFilter && s.status !== statusFilter) return false;
-    if (modelFilter && s.model !== modelFilter) return false;
+    if (modelFilter && norm(s.model) !== norm(modelFilter)) return false;
     if (branchFilter && (s.location || BRANCHES[0]) !== branchFilter) return false;
     return true;
   });
@@ -979,9 +1000,9 @@ function renderStock() {
       </div>
       <div class="card p-4">
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-          <div><label class="label">Search</label><input class="input" placeholder="VIN, motor..." value="${escapeHtml(state.filters.stockSearch || '')}" oninput="state.filters.stockSearch=this.value; renderStock();"></div>
+          <div><label class="label">Search</label><input id="stockSearchInput" class="input" placeholder="VIN, motor..." value="${escapeHtml(state.filters.stockSearch || '')}" oninput="liveSearch(this, () => { state.filters.stockSearch=this.value; renderStock(); })"></div>
           <div><label class="label">Status</label><select class="select" onchange="state.filters.stockStatus=this.value; renderStock();"><option value="">All Status</option>${STOCK_STATUSES.map(s => `<option ${state.filters.stockStatus === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
-          <div><label class="label">Model</label><select class="select" onchange="state.filters.stockModel=this.value; renderStock();"><option value="">All Models</option>${CHETAK_MODELS.map(m => `<option ${state.filters.stockModel === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
+          <div><label class="label">Model</label><select class="select" onchange="state.filters.stockModel=this.value; renderStock();"><option value="">All Models</option>${stockModelOptions.map(m => `<option ${state.filters.stockModel === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}</select></div>
           <div><label class="label">Branch</label><select class="select" onchange="state.filters.stockBranch=this.value; renderStock();"><option value="">All Branches</option>${BRANCHES.map(b => `<option ${state.filters.stockBranch === b ? 'selected' : ''}>${b}</option>`).join('')}</select></div>
           <div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters={}; renderStock();">Clear Filters</button></div>
         </div>
@@ -1175,7 +1196,7 @@ function renderTransfers() {
         <button class="btn btn-outline" onclick="navigateTo('stock')">← Back to Stock</button>
       </div>
       <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div><label class="label">Search</label><input class="input" placeholder="VIN or model..." value="${escapeHtml(f.search || '')}" oninput="state.filters.transfers = state.filters.transfers || {}; state.filters.transfers.search = this.value; renderTransfers();"></div>
+        <div><label class="label">Search</label><input id="transfersSearchInput" class="input" placeholder="VIN or model..." value="${escapeHtml(f.search || '')}" oninput="liveSearch(this, () => { state.filters.transfers = state.filters.transfers || {}; state.filters.transfers.search = this.value; renderTransfers(); })"></div>
         <div><label class="label">Branch</label><select class="select" onchange="state.filters.transfers = state.filters.transfers || {}; state.filters.transfers.branch = this.value; renderTransfers();"><option value="">All Branches</option>${BRANCHES.map(b => `<option ${f.branch === b ? 'selected' : ''}>${b}</option>`).join('')}</select></div>
         <div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.transfers={}; renderTransfers();">Clear Filters</button></div>
       </div></div>
@@ -1250,7 +1271,7 @@ function renderCustomers() {
         <div><h3 class="font-display font-bold text-lg text-gray-900">Customers (${filtered.length})</h3><p class="text-gray-500 text-xs">Manage customer records</p></div>
         <button class="btn btn-primary" onclick="openCustomerModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Customer</button>
       </div>
-      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label class="label">Search</label><input class="input" placeholder="Name, phone, email, citizenship..." value="${escapeHtml(state.filters.customerSearch || '')}" oninput="state.filters.customerSearch=this.value; renderCustomers();"></div></div></div>
+      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label class="label">Search</label><input id="customerSearchInput" class="input" placeholder="Name, phone, email, citizenship..." value="${escapeHtml(state.filters.customerSearch || '')}" oninput="liveSearch(this, () => { state.filters.customerSearch=this.value; renderCustomers(); })"></div></div></div>
       <div class="card">
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><p>No customers found</p></div>` : `
           <div class="table-wrap" style="border: none;"><table class="table">
@@ -1349,7 +1370,7 @@ function renderSales() {
         <div><h3 class="font-display font-bold text-lg text-gray-900">Sales (${filtered.length})</h3><p class="text-gray-500 text-xs">Vehicle sales transactions</p></div>
         <div class="flex flex-wrap gap-2"><button class="btn btn-outline" onclick="exportModule('sales')">Export Sales</button><button class="btn btn-outline" onclick="triggerImport('sales')">Import Sales</button><button class="btn btn-primary" onclick="openSaleModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19"/></svg>New Sale</button></div>
       </div>
-      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input class="input" placeholder="Sale no, customer, VIN, phone..." value="${escapeHtml(state.filters.salesSearch || '')}" oninput="state.filters.salesSearch=this.value; renderSales();"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.salesSearch=''; renderSales();">Clear</button></div></div></div>
+      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input id="salesSearchInput" class="input" placeholder="Sale no, customer, VIN, phone..." value="${escapeHtml(state.filters.salesSearch || '')}" oninput="liveSearch(this, () => { state.filters.salesSearch=this.value; renderSales(); })"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.salesSearch=''; renderSales();">Clear</button></div></div></div>
       <div class="card">
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg><p>No sales records found</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
@@ -1363,6 +1384,12 @@ function renderSales() {
 
 async function openSaleModal() {
   const availableStock = state.stock.filter(s => s.status === 'available');
+  // Build the Model dropdown from models that actually exist in available stock (union with the
+  // known CHETAK_MODELS list), so imported/typed model strings that don't exactly match the fixed
+  // list still show up correctly instead of the VIN dropdown showing 0.
+  const modelCounts = {};
+  availableStock.forEach(s => { const key = String(s.model || '').trim(); if (!key) return; modelCounts[key] = (modelCounts[key] || 0) + 1; });
+  const saleModelOptions = [...new Set([...CHETAK_MODELS, ...Object.keys(modelCounts)])];
   const saleNo = await generateNumber('chetak_sales', 'sale_no', 'CTS-SALE');
   openModal(`
     <div class="p-5 border-b border-gray-100 flex items-center justify-between">
@@ -1374,7 +1401,7 @@ async function openSaleModal() {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label class="label">Select Customer <span class="req">*</span></label><select name="customer_id" class="select" required id="saleCustomer"><option value="">— Select Customer —</option>${state.customers.map(c => `<option value="${c.id}">${escapeHtml(c.customer_name)} — ${escapeHtml(c.phone)}</option>`).join('')}</select></div><div><label class="label">Sale Number</label><input class="input bg-gray-50" value="${saleNo}" readonly name="sale_no"></div></div>
       </div>
       <div><h4 class="font-display font-bold text-sm text-gray-900 mb-2">2. Vehicle Selection</h4>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label class="label">Model <span class="req">*</span></label><select name="model" class="select" id="saleModel" required><option value="">— Select Model —</option>${CHETAK_MODELS.map(m => `<option>${m}</option>`).join('')}</select></div><div><label class="label">Available VIN <span class="req">*</span></label><select name="stock_id" class="select" id="saleVin" required disabled><option value="">— Select Model First —</option></select></div></div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label class="label">Model <span class="req">*</span></label><select name="model" class="select" id="saleModel" required><option value="">— Select Model —</option>${saleModelOptions.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)} (${modelCounts[m] || 0} available)</option>`).join('')}</select></div><div><label class="label">Available VIN <span class="req">*</span></label><select name="stock_id" class="select" id="saleVin" required disabled><option value="">— Select Model First —</option></select></div></div>
         <div id="vehicleInfo" class="hidden-view mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 p-3 bg-gray-50 rounded-lg text-xs"><div><p class="text-gray-500">Colour</p><p class="font-semibold" id="vi-colour"></p></div><div><p class="text-gray-500">Motor</p><p class="font-semibold font-mono" id="vi-motor"></p></div><div><p class="text-gray-500">Selling Price</p><p class="font-semibold" id="vi-price"></p></div></div>
       </div>
       <div><h4 class="font-display font-bold text-sm text-gray-900 mb-2">3. Payment Details</h4>
@@ -1389,7 +1416,10 @@ async function openSaleModal() {
   `);
 
   $('#saleModel').addEventListener('change', (e) => {
-    const model = e.target.value; const vins = availableStock.filter(s => s.model === model); const vinSelect = $('#saleVin');
+    const model = e.target.value;
+    const norm = v => String(v || '').trim().toLowerCase();
+    const vins = availableStock.filter(s => norm(s.model) === norm(model));
+    const vinSelect = $('#saleVin');
     vinSelect.innerHTML = `<option value="">— Select VIN (${vins.length} available) —</option>` + vins.map(s => `<option value="${s.id}" data-colour="${s.colour}" data-motor="${s.motor_no}" data-price="${s.selling_price}">${s.vin_no}</option>`).join('');
     vinSelect.disabled = false; $('#vehicleInfo').classList.add('hidden-view');
   });
@@ -1462,7 +1492,7 @@ function renderDelivery() {
           <button class="btn btn-primary" onclick="openDeliveryModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Delivery Order</button>
         </div>
       </div>
-      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input class="input" placeholder="Delivery Order no, sale no, customer, VIN..." value="${escapeHtml(state.filters.deliverySearch || '')}" oninput="state.filters.deliverySearch=this.value; renderDelivery();"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.deliverySearch=''; renderDelivery();">Clear</button></div></div></div>
+      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input id="deliverySearchInput" class="input" placeholder="Delivery Order no, sale no, customer, VIN..." value="${escapeHtml(state.filters.deliverySearch || '')}" oninput="liveSearch(this, () => { state.filters.deliverySearch=this.value; renderDelivery(); })"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.deliverySearch=''; renderDelivery();">Clear</button></div></div></div>
       <div class="card">
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 18H3c-.6 0-1-.4-1-1V7c0-.6.4-1 1-1h10c.6 0 1 .4 1 1v11"/><path d="M14 9h4l4 4v4c0 .6-.4 1-1 1h-2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg><p>No Delivery Order records</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
@@ -1716,7 +1746,7 @@ function renderQuotation() {
           <button class="btn btn-primary" onclick="openQuotationModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New Quotation</button>
         </div>
       </div>
-      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input class="input" placeholder="Quote no, customer, model..." value="${escapeHtml(state.filters.quoteSearch || '')}" oninput="state.filters.quoteSearch=this.value; renderQuotation();"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.quoteSearch=''; renderQuotation();">Clear</button></div></div></div>
+      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input id="quoteSearchInput" class="input" placeholder="Quote no, customer, model..." value="${escapeHtml(state.filters.quoteSearch || '')}" oninput="liveSearch(this, () => { state.filters.quoteSearch=this.value; renderQuotation(); })"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.quoteSearch=''; renderQuotation();">Clear</button></div></div></div>
       <div class="card">
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><p>No quotations</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
@@ -2407,8 +2437,13 @@ function renderSettings() {
    ============================================================ */
 function setupGlobalSearch() {
   const input = $('#globalSearch'); const results = $('#searchResults');
+  let globalSearchTimer = null;
   input.addEventListener('input', (e) => {
-    const q = e.target.value.trim().toLowerCase();
+    clearTimeout(globalSearchTimer);
+    globalSearchTimer = setTimeout(() => runGlobalSearch(e.target.value), 150);
+  });
+  function runGlobalSearch(rawValue) {
+    const q = rawValue.trim().toLowerCase();
     if (!q) { results.classList.add('hidden-view'); return; }
     const customers = state.customers.filter(c => `${c.customer_name} ${c.phone} ${c.email}`.toLowerCase().includes(q)).slice(0, 5);
     const stock = state.stock.filter(s => `${s.vin_no} ${s.model}`.toLowerCase().includes(q)).slice(0, 5);
@@ -2424,7 +2459,7 @@ function setupGlobalSearch() {
     if (quotes.length) html += `<div class="search-group-title">Quotations</div>${quotes.map(qt => `<div class="search-item" onclick="printQuotation('${qt.id}'); $('#globalSearch').value=''; $('#searchResults').classList.add('hidden-view');"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg><div><p class="font-semibold text-xs">${escapeHtml(qt.quotation_no)}</p><p class="text-[10px] text-gray-500">${escapeHtml(qt.customer_name)}</p></div></div>`).join('')}`;
     if (!html) html = `<div class="p-4 text-xs text-gray-500 text-center">No results found</div>`;
     results.innerHTML = html; results.classList.remove('hidden-view');
-  });
+  }
   document.addEventListener('click', (e) => { if (!e.target.closest('.topbar-search')) results.classList.add('hidden-view'); });
 }
 
