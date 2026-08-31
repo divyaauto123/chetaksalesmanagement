@@ -585,6 +585,19 @@ function friendlyDbError(error) {
    ============================================================ */
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
+// Debounced search: waits for a short pause in typing before re-rendering the (large) table,
+// then restores focus + cursor position on the search box so typing feels smooth and uninterrupted.
+const _searchTimers = {};
+function debounceSearch(key, inputId, renderFn, delay = 220) {
+  clearTimeout(_searchTimers[key]);
+  _searchTimers[key] = setTimeout(() => {
+    const el = document.getElementById(inputId);
+    const pos = el ? el.selectionStart : null;
+    renderFn();
+    const newEl = document.getElementById(inputId);
+    if (newEl) { newEl.focus(); if (pos != null) { try { newEl.setSelectionRange(pos, pos); } catch (_) {} } }
+  }, delay);
+}
 const money = (n) => 'Rs. ' + (Number(n) || 0).toLocaleString('en-IN');
 const formatDate = (d) => { if (!d) return '—'; const dt = new Date(d); return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); };
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -979,7 +992,7 @@ function renderStock() {
       </div>
       <div class="card p-4">
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-          <div><label class="label">Search</label><input class="input" placeholder="VIN, motor..." value="${escapeHtml(state.filters.stockSearch || '')}" oninput="state.filters.stockSearch=this.value; renderStock();"></div>
+          <div><label class="label">Search</label><input id="stockSearchInput" class="input" placeholder="VIN, motor..." value="${escapeHtml(state.filters.stockSearch || '')}" oninput="state.filters.stockSearch=this.value; debounceSearch('stock','stockSearchInput',renderStock);"></div>
           <div><label class="label">Status</label><select class="select" onchange="state.filters.stockStatus=this.value; renderStock();"><option value="">All Status</option>${STOCK_STATUSES.map(s => `<option ${state.filters.stockStatus === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
           <div><label class="label">Model</label><select class="select" onchange="state.filters.stockModel=this.value; renderStock();"><option value="">All Models</option>${CHETAK_MODELS.map(m => `<option ${state.filters.stockModel === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
           <div><label class="label">Branch</label><select class="select" onchange="state.filters.stockBranch=this.value; renderStock();"><option value="">All Branches</option>${BRANCHES.map(b => `<option ${state.filters.stockBranch === b ? 'selected' : ''}>${b}</option>`).join('')}</select></div>
@@ -1175,7 +1188,7 @@ function renderTransfers() {
         <button class="btn btn-outline" onclick="navigateTo('stock')">← Back to Stock</button>
       </div>
       <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div><label class="label">Search</label><input class="input" placeholder="VIN or model..." value="${escapeHtml(f.search || '')}" oninput="state.filters.transfers = state.filters.transfers || {}; state.filters.transfers.search = this.value; renderTransfers();"></div>
+        <div><label class="label">Search</label><input id="transfersSearchInput" class="input" placeholder="VIN or model..." value="${escapeHtml(f.search || '')}" oninput="state.filters.transfers = state.filters.transfers || {}; state.filters.transfers.search = this.value; debounceSearch('transfers','transfersSearchInput',renderTransfers);"></div>
         <div><label class="label">Branch</label><select class="select" onchange="state.filters.transfers = state.filters.transfers || {}; state.filters.transfers.branch = this.value; renderTransfers();"><option value="">All Branches</option>${BRANCHES.map(b => `<option ${f.branch === b ? 'selected' : ''}>${b}</option>`).join('')}</select></div>
         <div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.transfers={}; renderTransfers();">Clear Filters</button></div>
       </div></div>
@@ -1250,7 +1263,7 @@ function renderCustomers() {
         <div><h3 class="font-display font-bold text-lg text-gray-900">Customers (${filtered.length})</h3><p class="text-gray-500 text-xs">Manage customer records</p></div>
         <button class="btn btn-primary" onclick="openCustomerModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Customer</button>
       </div>
-      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label class="label">Search</label><input class="input" placeholder="Name, phone, email, citizenship..." value="${escapeHtml(state.filters.customerSearch || '')}" oninput="state.filters.customerSearch=this.value; renderCustomers();"></div></div></div>
+      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label class="label">Search</label><input id="customerSearchInput" class="input" placeholder="Name, phone, email, citizenship..." value="${escapeHtml(state.filters.customerSearch || '')}" oninput="state.filters.customerSearch=this.value; debounceSearch('customers','customerSearchInput',renderCustomers);"></div></div></div>
       <div class="card">
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><p>No customers found</p></div>` : `
           <div class="table-wrap" style="border: none;"><table class="table">
@@ -1349,7 +1362,7 @@ function renderSales() {
         <div><h3 class="font-display font-bold text-lg text-gray-900">Sales (${filtered.length})</h3><p class="text-gray-500 text-xs">Vehicle sales transactions</p></div>
         <div class="flex flex-wrap gap-2"><button class="btn btn-outline" onclick="exportModule('sales')">Export Sales</button><button class="btn btn-outline" onclick="triggerImport('sales')">Import Sales</button><button class="btn btn-primary" onclick="openSaleModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19"/></svg>New Sale</button></div>
       </div>
-      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input class="input" placeholder="Sale no, customer, VIN, phone..." value="${escapeHtml(state.filters.salesSearch || '')}" oninput="state.filters.salesSearch=this.value; renderSales();"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.salesSearch=''; renderSales();">Clear</button></div></div></div>
+      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input id="salesSearchInput" class="input" placeholder="Sale no, customer, VIN, phone..." value="${escapeHtml(state.filters.salesSearch || '')}" oninput="state.filters.salesSearch=this.value; debounceSearch('sales','salesSearchInput',renderSales);"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.salesSearch=''; renderSales();">Clear</button></div></div></div>
       <div class="card">
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg><p>No sales records found</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
@@ -1412,10 +1425,18 @@ async function openSaleModal() {
     if (data.discount > data.selling_price) { errBox.textContent = 'Discount cannot exceed selling price.'; errBox.classList.remove('hidden-view'); return; }
     if (state.sales.some(s => s.stock_id === data.stock_id)) { errBox.textContent = 'This vehicle is already sold.'; errBox.classList.remove('hidden-view'); showToast('This vehicle is already sold', 'warning'); return; }
     const btn = $('#saleSaveBtn'); const done = showLoading(btn, 'Creating...');
+    let createdSale = null;
     try {
       const saleRecord = { ...data, colour: stockItem.colour, vin_no: stockItem.vin_no, motor_no: stockItem.motor_no, battery_no: stockItem.battery_no, registration_no: stockItem.registration_no };
-      await db.insert('chetak_sales', saleRecord);
-      await db.update('chetak_stock', stockItem.id, { status: data.status === 'confirmed' ? 'sold' : 'reserved', updated_at: new Date().toISOString() });
+      createdSale = await db.insert('chetak_sales', saleRecord);
+      try {
+        await db.update('chetak_stock', stockItem.id, { status: data.status === 'confirmed' ? 'sold' : 'reserved', updated_at: new Date().toISOString() });
+      } catch (stockErr) {
+        // Stock status update failed (e.g. permission/network) — roll back the sale so we never end up
+        // with a recorded sale whose vehicle still shows as available in stock.
+        try { await db.remove('chetak_sales', createdSale.id); } catch (_) {}
+        throw new Error('Sale was not saved because stock could not be updated: ' + (stockErr.message || stockErr));
+      }
       showToast('Sale created successfully · Vehicle marked as ' + (data.status === 'confirmed' ? 'sold' : 'reserved'), 'success');
       closeModal(); await refreshData();
     } catch (err) { errBox.textContent = err.message; errBox.classList.remove('hidden-view'); showToast('Error: ' + err.message, 'error'); } finally { done(); }
@@ -1462,7 +1483,7 @@ function renderDelivery() {
           <button class="btn btn-primary" onclick="openDeliveryModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Delivery Order</button>
         </div>
       </div>
-      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input class="input" placeholder="Delivery Order no, sale no, customer, VIN..." value="${escapeHtml(state.filters.deliverySearch || '')}" oninput="state.filters.deliverySearch=this.value; renderDelivery();"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.deliverySearch=''; renderDelivery();">Clear</button></div></div></div>
+      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input id="deliverySearchInput" class="input" placeholder="Delivery Order no, sale no, customer, VIN..." value="${escapeHtml(state.filters.deliverySearch || '')}" oninput="state.filters.deliverySearch=this.value; debounceSearch('delivery','deliverySearchInput',renderDelivery);"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.deliverySearch=''; renderDelivery();">Clear</button></div></div></div>
       <div class="card">
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 18H3c-.6 0-1-.4-1-1V7c0-.6.4-1 1-1h10c.6 0 1 .4 1 1v11"/><path d="M14 9h4l4 4v4c0 .6-.4 1-1 1h-2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg><p>No Delivery Order records</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
@@ -1716,7 +1737,7 @@ function renderQuotation() {
           <button class="btn btn-primary" onclick="openQuotationModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New Quotation</button>
         </div>
       </div>
-      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input class="input" placeholder="Quote no, customer, model..." value="${escapeHtml(state.filters.quoteSearch || '')}" oninput="state.filters.quoteSearch=this.value; renderQuotation();"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.quoteSearch=''; renderQuotation();">Clear</button></div></div></div>
+      <div class="card p-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-2"><label class="label">Search</label><input id="quoteSearchInput" class="input" placeholder="Quote no, customer, model..." value="${escapeHtml(state.filters.quoteSearch || '')}" oninput="state.filters.quoteSearch=this.value; debounceSearch('quotes','quoteSearchInput',renderQuotation);"></div><div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters.quoteSearch=''; renderQuotation();">Clear</button></div></div></div>
       <div class="card">
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><p>No quotations</p></div>` : `
           <div class="table-wrap" style="border:none;"><table class="table">
