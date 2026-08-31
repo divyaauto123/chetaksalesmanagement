@@ -971,18 +971,21 @@ function renderStock() {
   const statusFilter = state.filters.stockStatus || '';
   const modelFilter = state.filters.stockModel || '';
   const branchFilter = state.filters.stockBranch || '';
+  const showSold = !!state.filters.stockShowSold;
   let filtered = state.stock.filter(s => {
     if (search) { const t = `${s.vin_no} ${s.model} ${s.colour} ${s.motor_no} ${s.battery_no} ${s.registration_no}`.toLowerCase(); if (!t.includes(search)) return false; }
-    if (statusFilter && s.status !== statusFilter) return false;
+    if (statusFilter) { if (s.status !== statusFilter) return false; }
+    else if (!showSold && s.status === 'sold') return false;
     if (modelFilter && s.model !== modelFilter) return false;
     if (branchFilter && (s.location || BRANCHES[0]) !== branchFilter) return false;
     return true;
   });
+  const soldHiddenCount = state.stock.filter(s => s.status === 'sold').length;
 
   $('#mainContent').innerHTML = `
     <div class="view space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3 page-header">
-        <div><h3 class="font-display font-bold text-lg text-gray-900">Inventory (${filtered.length})</h3><p class="text-gray-500 text-xs">Manage vehicle stock records</p></div>
+        <div><h3 class="font-display font-bold text-lg text-gray-900">Inventory (${filtered.length})</h3><p class="text-gray-500 text-xs">Manage vehicle stock records${(!statusFilter && !showSold && soldHiddenCount) ? ` · ${soldHiddenCount} sold vehicle${soldHiddenCount === 1 ? '' : 's'} hidden` : ''}</p></div>
         <div class="flex flex-wrap gap-2">
           <button class="btn btn-outline" onclick="printStockReport()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/></svg>Print</button>
           <button class="btn btn-outline" onclick="exportModule('stock')">Export Stock</button>
@@ -999,6 +1002,7 @@ function renderStock() {
           <div><label class="label">Branch</label><select class="select" onchange="state.filters.stockBranch=this.value; renderStock();"><option value="">All Branches</option>${BRANCHES.map(b => `<option ${state.filters.stockBranch === b ? 'selected' : ''}>${b}</option>`).join('')}</select></div>
           <div class="flex items-end"><button class="btn btn-outline w-full" onclick="state.filters={}; renderStock();">Clear Filters</button></div>
         </div>
+        <label class="flex items-center gap-2 text-xs text-gray-600 mt-3"><input type="checkbox" ${showSold ? 'checked' : ''} onchange="state.filters.stockShowSold=this.checked; renderStock();"> Show sold vehicles in this list</label>
       </div>
       <div class="card">
         ${filtered.length === 0 ? `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/></svg><p>No stock records found</p></div>` : `
